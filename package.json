@@ -44,7 +44,6 @@
     "zustand": "^4.5.0"
   },
   "devDependencies": {
-    "@electron-forge/maker-zip": "^7.11.1",
     "@tailwindcss/typography": "^0.5.19",
     "@types/dompurify": "^3.0.5",
     "@types/react": "^18.3.0",

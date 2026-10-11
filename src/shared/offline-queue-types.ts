@@ -37,6 +37,7 @@ export type OfflineFailureReason =
   | 'gave-up' // unknown errors on several replays in a row
   | 'other-account' // queued for a different server or user than the one signed in now
   | 'forbidden' // 403 on an assignee or comment change: the user may no longer change the project, or the comment is not theirs
+  | 'token-permission' // an assignee or comment change the API token is not allowed (cross-app semantics 9.7)
 
 /** Why a replay stopped before the queue was empty. `null` means it finished. */
 export type OfflineReplayStop = 'auth' | 'network' | 'server' | 'rate-limit' | 'config' | 'unknown'

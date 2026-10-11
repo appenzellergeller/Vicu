@@ -612,8 +612,9 @@ space), and the caret moves after the space.
   thread at once with "Waiting to sync" in place of its time.
 - Replay answers: an assign answered 400 with code 4021 (already assigned) is done; an unassign
   is idempotent; a comment delete answered 404 is done; a 403 on any of these moves the action to
-  the failed log (the user may no longer write to the project) instead of stopping the queue; a
-  404 on a comment create or edit moves it to the failed log.
+  the failed log (the user may no longer write to the project) instead of stopping the queue, and
+  so does a 401 to a token that still works (section 9.7); a 404 on a comment create or edit moves
+  it to the failed log.
 - Subscriptions and "mark read" are not queued: a subscription change needs the server's answer,
   and a read that does not reach the server is simply repeated the next time the comments open.
 
@@ -631,6 +632,14 @@ space), and the caret moves after the space.
   Team shares are listed read only and are managed in Vikunja. A change refreshes the project's
   members at once; when a project stops being shared, its chips and signals go and an open comments
   pane or screen closes.
+- **API tokens.** Vikunja does not offer API tokens the `subscriptions` route group, so with a
+  token every Notify me call answers 401: apps signed in with an API token do not offer Notify me.
+  A token can also lack a route group this section uses (`tasks_comments`, `tasks_assignees`,
+  `projects_users`, `projects_teams`), and the server answers that with 401 as well (checked on
+  2.4.0). A 401 means the session ended only when the same token is also refused
+  `GET projects?per_page=1` (the project list every app reads); otherwise it refuses that one
+  request. The app stays signed in and says that the token lacks the permission (and that signing
+  in with a password avoids it), and a queued action refused that way goes to the failed log.
 
 ### 9.8 Vectors
 

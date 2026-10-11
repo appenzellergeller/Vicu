@@ -53,9 +53,13 @@ type Step =
   /** Can never be sent (its task was never created, its image file is gone). */
   | { kind: 'broken'; reason: OfflineFailureReason; error: string }
 
-const fail = (result: { error: string; statusCode?: number }): Step => ({
+const fail = (result: { error: string; statusCode?: number; tokenPermission?: boolean }): Step => ({
   kind: 'failure',
-  failure: { error: result.error, statusCode: result.statusCode },
+  failure: {
+    error: result.error,
+    statusCode: result.statusCode,
+    ...(result.tokenPermission ? { tokenPermission: true } : {}),
+  },
 })
 
 /**

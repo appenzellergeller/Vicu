@@ -12,6 +12,7 @@ const FAILURE_REASONS: ReadonlySet<string> = new Set<OfflineFailureReason>([
   'gave-up',
   'other-account',
   'forbidden',
+  'token-permission',
 ])
 
 const isRecord = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)

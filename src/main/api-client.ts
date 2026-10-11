@@ -314,7 +314,14 @@ async function requestBinaryWithRetry(
   return result
 }
 
-async function getConfigOrFail(): Promise<{ url: string; token: string } | ApiError> {
+/** Where requests go and with which token; `apiToken` when that is an API token, not a session. */
+interface Connection {
+  url: string
+  token: string
+  apiToken: boolean
+}
+
+async function getConfigOrFail(): Promise<Connection | ApiError> {
   const config = loadConfig()
   if (!config || !config.vikunja_url) {
     return { success: false, error: 'Vikunja is not configured. Open Settings to connect.' }
@@ -323,12 +330,12 @@ async function getConfigOrFail(): Promise<{ url: string; token: string } | ApiEr
   if (config.auth_method === 'oidc' || config.auth_method === 'password') {
     // Fast path: sync token check
     const syncToken = authManager.getTokenSync()
-    if (syncToken) return { url: config.vikunja_url, token: syncToken }
+    if (syncToken) return { url: config.vikunja_url, token: syncToken, apiToken: false }
 
     // Slow path: async recovery (refresh token / silent reauth)
     try {
       const asyncToken = await authManager.getToken()
-      return { url: config.vikunja_url, token: asyncToken }
+      return { url: config.vikunja_url, token: asyncToken, apiToken: false }
     } catch {
       notifyAuthRequired()
       return { success: false, error: 'Session expired. Please sign in again.' }
@@ -340,7 +347,7 @@ async function getConfigOrFail(): Promise<{ url: string; token: string } | ApiEr
   if (!token) {
     return { success: false, error: 'Vikunja is not configured. Open Settings to connect.' }
   }
-  return { url: config.vikunja_url, token }
+  return { url: config.vikunja_url, token, apiToken: true }
 }
 
 // --- Tasks ---
@@ -904,10 +911,50 @@ export async function downloadTaskAttachment(
 
 // --- Collaboration (docs/cross-app-semantics-v1.md section 9) ---
 
-/** A 403 from the collaboration endpoints is about the project, not the token. */
-function withCollabMessage<T>(result: ApiResult<T>, forbidden: string): ApiResult<T> {
-  if (result.success || result.statusCode !== 403) return result
-  return { ...result, error: forbidden }
+const TOKEN_LACKS_PERMISSION =
+  'Your API token does not have this permission. In Vikunja, give the token the permissions for task comments, task assignees and project sharing, or sign in with your password instead.'
+const TOKEN_CANNOT_FOLLOW = 'Vikunja does not let API tokens follow tasks. Sign in with your password to use Notify me.'
+
+/** How long a token that read the project list counts as working without asking again. */
+const TOKEN_CHECK_FRESH_MS = 60_000
+let workingToken: { token: string; at: number } | null = null
+
+/**
+ * Whether an API token still reads the project list (one project). Every token the app works with
+ * does, so one that passes was refused only the request that answered 401. No answer counts as
+ * working: a network problem says nothing about the token. One check answers for a minute, because
+ * a members refresh can be refused once per project.
+ */
+async function tokenReadsProjects(url: string, token: string): Promise<boolean> {
+  const now = Date.now()
+  if (workingToken && workingToken.token === token && now - workingToken.at < TOKEN_CHECK_FRESH_MS) return true
+  const result = await request<unknown>('GET', `${url}${API_BASE_PATH}/projects?per_page=1&page=1`, token)
+  const refused = !result.success && (result.statusCode === 401 || result.statusCode === 403)
+  if (result.success) workingToken = { token, at: now }
+  else if (refused) workingToken = null
+  return !refused
+}
+
+/**
+ * The answer of a collaboration endpoint, in words for the user. A 403 is about the project, not
+ * the token: `forbidden` says why. An API token can lack a route group these endpoints use
+ * (comments, assignees, sharing; no token may follow tasks), and Vikunja answers that with 401 like
+ * an ended session. When the same token still reads the project list, only this request was refused
+ * (cross-app semantics 9.7): it becomes a 403 marked `tokenPermission`, which the replay moves to
+ * the failed log and the app shows with `tokenMessage` instead of "session expired".
+ */
+async function collabResult<T>(
+  result: ApiResult<T>,
+  c: Connection,
+  forbidden?: string,
+  tokenMessage = TOKEN_LACKS_PERMISSION,
+): Promise<ApiResult<T>> {
+  if (result.success) return result
+  if (result.statusCode === 403 && forbidden) return { ...result, error: forbidden }
+  if (result.statusCode === 401 && c.apiToken && (await tokenReadsProjects(c.url, c.token))) {
+    return { success: false, error: tokenMessage, statusCode: 403, errorCode: result.errorCode, tokenPermission: true }
+  }
+  return result
 }
 
 /** Everyone who can see a project: the owner, direct shares, team members and parent shares. */
@@ -920,7 +967,7 @@ export async function searchProjectUsers(projectId: number): Promise<ApiResult<u
     `${c.url}${API_BASE_PATH}/projects/${projectId}/users/search?q=`,
     c.token,
   )
-  if (!result.success) return result
+  if (!result.success) return collabResult(result, c)
   return { success: true, data: envelopeItems(result.data) }
 }
 
@@ -929,7 +976,7 @@ export async function fetchProjectUserShares(projectId: number): Promise<ApiResu
   const c = await getConfigOrFail()
   if ('success' in c) return c
 
-  return requestAllPagesWithRetry<unknown>(`${c.url}${API_BASE_PATH}/projects/${projectId}/users`, c.token)
+  return collabResult(await requestAllPagesWithRetry<unknown>(`${c.url}${API_BASE_PATH}/projects/${projectId}/users`, c.token), c)
 }
 
 /** The teams a project is shared with, each with its permission and members. */
@@ -937,7 +984,7 @@ export async function fetchProjectTeamShares(projectId: number): Promise<ApiResu
   const c = await getConfigOrFail()
   if ('success' in c) return c
 
-  return requestAllPagesWithRetry<unknown>(`${c.url}${API_BASE_PATH}/projects/${projectId}/teams`, c.token)
+  return collabResult(await requestAllPagesWithRetry<unknown>(`${c.url}${API_BASE_PATH}/projects/${projectId}/teams`, c.token), c)
 }
 
 const NOT_ADMIN = 'Only an admin of this project can change who it is shared with.'
@@ -950,7 +997,7 @@ export async function shareProjectWithUser(projectId: number, username: string, 
     username,
     permission,
   })
-  return withCollabMessage(result, NOT_ADMIN)
+  return collabResult(result, c, NOT_ADMIN)
 }
 
 export async function updateProjectUserShare(projectId: number, username: string, permission: number): Promise<ApiResult<unknown>> {
@@ -963,7 +1010,7 @@ export async function updateProjectUserShare(projectId: number, username: string
     c.token,
     { permission },
   )
-  return withCollabMessage(result, NOT_ADMIN)
+  return collabResult(result, c, NOT_ADMIN)
 }
 
 export async function removeProjectUserShare(projectId: number, username: string): Promise<ApiResult<void>> {
@@ -975,7 +1022,7 @@ export async function removeProjectUserShare(projectId: number, username: string
     `${c.url}${API_BASE_PATH}/projects/${projectId}/users/${encodeURIComponent(username)}`,
     c.token,
   )
-  return withCollabMessage(result, NOT_ADMIN)
+  return collabResult(result, c, NOT_ADMIN)
 }
 
 /** Users matching a search: an exact username, or a name or email of someone who made themselves findable. */
@@ -988,7 +1035,7 @@ export async function searchUsers(query: string): Promise<ApiResult<unknown[]>> 
     `${c.url}${API_BASE_PATH}/users?q=${encodeURIComponent(query)}`,
     c.token,
   )
-  if (!result.success) return result
+  if (!result.success) return collabResult(result, c)
   return { success: true, data: envelopeItems(result.data) }
 }
 
@@ -1003,7 +1050,7 @@ export async function addTaskAssignee(taskId: number, userId: number): Promise<A
     user_id: userId,
   })
   if (!result.success && result.errorCode === VIKUNJA_ERROR_ALREADY_ASSIGNED) return { success: true, data: null }
-  return withCollabMessage(result, NO_WRITE_ACCESS)
+  return collabResult(result, c, NO_WRITE_ACCESS)
 }
 
 /** Unassign a user (idempotent on the server). */
@@ -1012,7 +1059,7 @@ export async function removeTaskAssignee(taskId: number, userId: number): Promis
   if ('success' in c) return c
 
   const result = await requestWithRetry<void>('DELETE', `${c.url}${API_BASE_PATH}/tasks/${taskId}/assignees/${userId}`, c.token)
-  return withCollabMessage(result, NO_WRITE_ACCESS)
+  return collabResult(result, c, NO_WRITE_ACCESS)
 }
 
 /** One page of a task's comments, newest first (the thread shows them oldest first). */
@@ -1025,7 +1072,7 @@ export async function fetchTaskComments(taskId: number, page: number): Promise<A
     buildTaskCommentsUrl(c.url, taskId, page),
     c.token,
   )
-  if (!result.success) return result
+  if (!result.success) return collabResult(result, c)
   return { success: true, data: readCommentPage(result.data, page) }
 }
 
@@ -1036,7 +1083,7 @@ export async function createTaskComment(taskId: number, html: string): Promise<A
   const result = await requestWithRetry<unknown>('POST', `${c.url}${API_BASE_PATH}/tasks/${taskId}/comments`, c.token, {
     comment: html,
   })
-  return withCollabMessage(result, NO_WRITE_ACCESS)
+  return collabResult(result, c, NO_WRITE_ACCESS)
 }
 
 const ONLY_THE_AUTHOR = 'Only the person who wrote a comment can change or delete it.'
@@ -1048,7 +1095,7 @@ export async function updateTaskComment(taskId: number, commentId: number, html:
   const result = await patchWithRetry<unknown>(`${c.url}${API_BASE_PATH}/tasks/${taskId}/comments/${commentId}`, c.token, {
     comment: html,
   })
-  return withCollabMessage(result, ONLY_THE_AUTHOR)
+  return collabResult(result, c, ONLY_THE_AUTHOR)
 }
 
 export async function deleteTaskComment(taskId: number, commentId: number): Promise<ApiResult<void>> {
@@ -1056,7 +1103,7 @@ export async function deleteTaskComment(taskId: number, commentId: number): Prom
   if ('success' in c) return c
 
   const result = await requestWithRetry<void>('DELETE', `${c.url}${API_BASE_PATH}/tasks/${taskId}/comments/${commentId}`, c.token)
-  return withCollabMessage(result, ONLY_THE_AUTHOR)
+  return collabResult(result, c, ONLY_THE_AUTHOR)
 }
 
 /** Clear your unread flag on a task (idempotent). */
@@ -1064,7 +1111,7 @@ export async function markTaskRead(taskId: number): Promise<ApiResult<unknown>> 
   const c = await getConfigOrFail()
   if ('success' in c) return c
 
-  return requestWithRetry<unknown>('PUT', `${c.url}${API_BASE_PATH}/tasks/${taskId}/read`, c.token)
+  return collabResult(await requestWithRetry<unknown>('PUT', `${c.url}${API_BASE_PATH}/tasks/${taskId}/read`, c.token), c)
 }
 
 /** Follow a task. Already following (412, code 12002) counts as done. */
@@ -1074,14 +1121,15 @@ export async function subscribeToTask(taskId: number): Promise<ApiResult<unknown
 
   const result = await requestWithRetry<unknown>('POST', `${c.url}${API_BASE_PATH}/subscriptions/task/${taskId}`, c.token)
   if (!result.success && result.errorCode === VIKUNJA_ERROR_ALREADY_SUBSCRIBED) return { success: true, data: null }
-  return result
+  return collabResult(result, c, undefined, TOKEN_CANNOT_FOLLOW)
 }
 
 export async function unsubscribeFromTask(taskId: number): Promise<ApiResult<void>> {
   const c = await getConfigOrFail()
   if ('success' in c) return c
 
-  return requestWithRetry<void>('DELETE', `${c.url}${API_BASE_PATH}/subscriptions/task/${taskId}`, c.token)
+  const result = await requestWithRetry<void>('DELETE', `${c.url}${API_BASE_PATH}/subscriptions/task/${taskId}`, c.token)
+  return collabResult(result, c, undefined, TOKEN_CANNOT_FOLLOW)
 }
 
 /** A user's avatar as a data URL (the server answers SVG for its initials provider, else an image). */

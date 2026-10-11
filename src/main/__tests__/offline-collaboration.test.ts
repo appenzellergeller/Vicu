@@ -125,6 +125,12 @@ describe('replay failures', () => {
     }
     expect(classifyReplayFailure({ error: 'Forbidden', statusCode: 403 }, 'update')).toEqual({ kind: 'stop', why: 'auth' })
   })
+  it('an API token without the permission drops the change with its own reason (9.7)', () => {
+    const failure = { error: 'Your API token does not have this permission.', statusCode: 403, tokenPermission: true }
+    for (const type of ['add-assignee', 'remove-assignee', 'create-comment', 'update-comment', 'delete-comment'] as const) {
+      expect(classifyReplayFailure(failure, type)).toEqual({ kind: 'drop', reason: 'token-permission' })
+    }
+  })
   it('deleting or unassigning something already gone is done', () => {
     expect(classifyReplayFailure({ error: 'gone', statusCode: 404 }, 'delete-comment')).toEqual({ kind: 'done' })
     expect(classifyReplayFailure({ error: 'gone', statusCode: 404 }, 'remove-assignee')).toEqual({ kind: 'done' })
@@ -258,6 +264,18 @@ describe('queue and replay end to end', () => {
     expect(result).toMatchObject({ stopped: null, failed: 1 })
     expect(calls).toEqual(['updateTask 6'])
     expect(queue.snapshot().failed[0]).toMatchObject({ type: 'create-comment', reason: 'forbidden' })
+  })
+
+  it('a comment the API token may not write goes to the failed log and the rest still replays', async () => {
+    await queue.enqueueCreateComment(5, '<p>a</p>')
+    await queue.enqueueUpdate(6, { title: 'x' })
+    const error = 'Your API token does not have this permission.'
+    const { api, calls } = fakeApi({ createTaskComment: async () => ({ success: false, error, statusCode: 403, tokenPermission: true }) })
+    const result = await replayQueue(queue, api)
+    expect(result).toMatchObject({ stopped: null, failed: 1 })
+    expect(calls).toEqual(['updateTask 6'])
+    expect(queue.snapshot().failed[0]).toMatchObject({ type: 'create-comment', reason: 'token-permission', error })
+    expect(queue.snapshot().authProblem ?? null).toBeNull()
   })
 
   it('the write gate queues an assignee change behind waiting changes, and a comment only when nothing was sent', async () => {

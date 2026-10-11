@@ -8,17 +8,20 @@ export class ApiError extends Error {
   readonly statusCode?: number
   /** A create that failed in a way that may still have created the task: the message says so and must be shown as it is. */
   readonly mayExist: boolean
+  /** The API token lacks the permission for this request (cross-app semantics 9.7): the message says which. */
+  readonly tokenPermission: boolean
 
-  constructor(message: string, statusCode?: number, mayExist = false) {
+  constructor(message: string, statusCode?: number, mayExist = false, tokenPermission = false) {
     super(message)
     this.name = 'ApiError'
     this.statusCode = statusCode
     this.mayExist = mayExist
+    this.tokenPermission = tokenPermission
   }
 }
 
-export function apiError(result: { error: string; statusCode?: number; mayExist?: boolean }): ApiError {
-  return new ApiError(result.error, result.statusCode, result.mayExist === true)
+export function apiError(result: { error: string; statusCode?: number; mayExist?: boolean; tokenPermission?: boolean }): ApiError {
+  return new ApiError(result.error, result.statusCode, result.mayExist === true, result.tokenPermission === true)
 }
 
 export type FailureKind = 'offline' | 'auth' | 'forbidden' | 'not-found' | 'rate-limit' | 'server' | 'rejected' | 'unknown'
@@ -49,6 +52,8 @@ export function describeMutationError(error: unknown): MutationFailure {
 
   // "The task may already have been created; check before retrying": not softened into "try again".
   if (error instanceof ApiError && error.mayExist && text) return { kind: 'unknown', message: text }
+  // The session works; the token lacks this one permission, and the message says how to give it.
+  if (error instanceof ApiError && error.tokenPermission && text) return { kind: 'forbidden', message: text }
 
   if (status === 401 || isAuthError(raw)) {
     return { kind: 'auth', message: 'Your session has expired. Sign in again to keep syncing.' }

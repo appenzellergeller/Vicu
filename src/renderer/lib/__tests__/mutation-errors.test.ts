@@ -41,6 +41,14 @@ describe('describeMutationError', () => {
     })
   })
 
+  it('says what an API token lacks instead of "session expired" (cross-app semantics 9.7)', () => {
+    const message = 'Your API token does not have this permission. Sign in with your password instead.'
+    expect(describeMutationError(apiError({ error: message, statusCode: 403, tokenPermission: true }))).toEqual({
+      kind: 'forbidden',
+      message,
+    })
+  })
+
   it('has fixed wording for permission, missing item and rate limit', () => {
     expect(describeMutationError(new ApiError('x', 403)).kind).toBe('forbidden')
     expect(describeMutationError(new ApiError('x', 404)).kind).toBe('not-found')

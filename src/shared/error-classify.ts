@@ -43,6 +43,8 @@ export function isAuthError(error: string): boolean {
 export interface FailureLike {
   error: string
   statusCode?: number
+  /** A 403 that stands for an API token without this permission (cross-app semantics 9.7). */
+  tokenPermission?: boolean
 }
 
 /**

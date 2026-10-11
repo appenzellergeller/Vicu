@@ -34,8 +34,11 @@ export function classifyReplayFailure(failure: FailureLike, actionType: OfflineA
 
   // An assignee or comment change answered 403 is about the project or the comment (the user lost
   // write access, or it is someone else's comment), not the session: one such change must not hold
-  // up everything behind it (cross-app semantics 9.6).
-  if (status === 403 && COLLAB_ACTIONS.has(actionType)) return { kind: 'drop', reason: 'forbidden' }
+  // up everything behind it (cross-app semantics 9.6). So is an API token without the permission for
+  // it, which the API client turns from 401 into a 403 marked tokenPermission (9.7).
+  if (status === 403 && COLLAB_ACTIONS.has(actionType)) {
+    return { kind: 'drop', reason: failure.tokenPermission ? 'token-permission' : 'forbidden' }
+  }
   if (status === 401 || status === 403 || isAuthError(failure.error)) return { kind: 'stop', why: 'auth' }
   if (failure.error.includes('is not configured')) return { kind: 'stop', why: 'config' }
 

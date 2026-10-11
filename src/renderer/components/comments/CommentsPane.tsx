@@ -15,6 +15,7 @@ import {
 import { formatDateDisplay } from '@/lib/date-display'
 import { localDayKey } from '@/lib/freshness'
 import { useDateFormat } from '@/hooks/use-date-format'
+import { useAppConfig } from '@/hooks/use-app-config'
 import { useDayKey } from '@/stores/day-store'
 import { useUIStore } from '@/stores/ui-store'
 import { commentDraft, commentsButtonId, saveCommentDraft, useCommentsPaneStore } from '@/stores/comments-pane-store'
@@ -124,7 +125,10 @@ function CommentsThread({ task, access, me, onClose, focusComposer }: ThreadProp
   const query = useTaskComments(task.id)
   const { comments, isLoading, isError, refetch, hasNextPage, fetchNextPage, isFetchingNextPage } = query
   const markRead = useMarkTaskRead()
-  const subscription = useTaskSubscription(task.id > 0 ? task.id : null)
+  // Vikunja does not let API tokens follow tasks (cross-app semantics 9.7): no Notify me with one.
+  const { data: config } = useAppConfig()
+  const canFollow = config?.auth_method === 'oidc' || config?.auth_method === 'password'
+  const subscription = useTaskSubscription(task.id > 0 && canFollow ? task.id : null)
   const canWrite = access.permission >= 1
   const count = Math.max(task.comment_count ?? 0, comments.length)
   const fmt = useDateFormat()
@@ -208,7 +212,7 @@ function CommentsThread({ task, access, me, onClose, focusComposer }: ThreadProp
           </h2>
           <span className="text-section font-medium text-text-secondary">{count}</span>
           <span className="flex-1" />
-          {task.id > 0 && (
+          {task.id > 0 && canFollow && (
             <Tooltip label={subscription.subscribed ? 'You get a notification for every new comment' : 'Get a notification for every new comment'}>
               <button
                 type="button"

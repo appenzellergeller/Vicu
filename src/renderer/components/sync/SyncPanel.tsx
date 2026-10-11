@@ -33,6 +33,8 @@ export function failureReasonLabel(reason: OfflineFailureReason): string {
       return 'Made while signed in to a different account, so it was not sent.'
     case 'forbidden':
       return 'You are no longer allowed to make this change in the project.'
+    case 'token-permission':
+      return 'Your API token is not allowed to make this change.'
   }
 }
 
@@ -74,10 +76,10 @@ function FailedRow({
         </div>
       </div>
       <p className="text-[11px] text-[var(--text-secondary)]">{failureReasonLabel(item.reason)}</p>
-      {item.reason !== 'dependency-failed' && item.reason !== 'other-account' && item.error && (
+      {item.reason !== 'dependency-failed' && item.reason !== 'other-account' && item.reason !== 'token-permission' && item.error && (
         <p className="break-words text-[11px] text-[var(--text-secondary)]">Server said: {item.error}</p>
       )}
-      {item.reason === 'other-account' && item.error && (
+      {(item.reason === 'other-account' || item.reason === 'token-permission') && item.error && (
         <p className="break-words text-[11px] text-[var(--text-secondary)]">{item.error}</p>
       )}
       <p className="text-caption text-[var(--text-secondary)] opacity-70">{formatAbsoluteDateTime(item.failedAt, fmt)}</p>

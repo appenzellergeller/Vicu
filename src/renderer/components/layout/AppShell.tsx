@@ -47,6 +47,8 @@ import { CustomListDragOverlay } from '@/components/sidebar/CustomListDragOverla
 import { SectionDragOverlay } from '@/components/task-list/SectionDragOverlay'
 import { UpdateBanner } from '@/components/UpdateBanner'
 import { ToastHost } from '@/components/shared/ToastHost'
+import { CommentsPaneHost } from '@/components/comments/CommentsPane'
+import { ProjectAccessProvider } from '@/hooks/use-project-access'
 import { APP_CONFIG_QUERY_KEY, useAppConfig } from '@/hooks/use-app-config'
 import { openTaskInApp } from '@/lib/open-task'
 import { toast } from '@/stores/toast-store'
@@ -722,6 +724,7 @@ export function AppShell() {
 
   return (
     <ProjectActionsContext.Provider value={projectActionsApi}>
+    <ProjectAccessProvider>
     <DndContext
       sensors={sensors}
       collisionDetection={collisionDetection}
@@ -771,6 +774,7 @@ export function AppShell() {
             <Outlet />
           </ContentArea>
         </div>
+        <CommentsPaneHost />
         <BadgeSync />
         <CompletionSoundSync />
         <GlobalConfirm />
@@ -794,6 +798,7 @@ export function AppShell() {
         )}
       </DragOverlay>
     </DndContext>
+    </ProjectAccessProvider>
     </ProjectActionsContext.Provider>
   )
 }

@@ -66,6 +66,10 @@ describe('resolveViewerFilter', () => {
       include_today_all_projects: true,
       priority_filter: [3],
       label_ids: [7],
+      assigned: 'me',
+      comments: 'unread',
+      shared_only: true,
+      changed_within_days: 7,
     })
     const resolved = resolveViewerFilter({ ...base, custom_list_id: 'list-1', project_ids: [9] }, [custom])
     expect(resolved.fromCustomList).toBe(true)
@@ -78,6 +82,10 @@ describe('resolveViewerFilter', () => {
       include_today_all_projects: true,
       priority_filter: [3],
       label_ids: [7],
+      assigned: 'me',
+      comments: 'unread',
+      shared_only: true,
+      changed_within_days: 7,
       sort_by: 'priority',
       order_by: 'desc',
     })
@@ -244,9 +252,20 @@ describe('"this week" ends on Sunday (D-WEEK-1)', () => {
 
 interface FixtureTask { id: number; projectId: number; due: string | null; done: boolean; priority: number; labelIds: number[] }
 interface Vector { name: string; today: string; filter: Partial<CustomList['filter']>; expect: number[] }
+interface ActivityTask {
+  id: number
+  projectId: number
+  due: string | null
+  done: boolean
+  assignees: number[]
+  commentCount: number
+  unread: boolean
+  updated: string
+}
 const fixture = JSON.parse(readFileSync(join(process.cwd(), 'test-fixtures', 'cross-app-semantics-v1.json'), 'utf8')) as {
   tasks: FixtureTask[]
   customLists: Vector[]
+  customListActivity: { me: number; shared: number[]; tasks: ActivityTask[]; vectors: Array<Vector & { signedOut?: boolean }> }
 }
 
 function local(value: string): Date {
@@ -278,6 +297,42 @@ describe.each(['America/New_York', 'Pacific/Auckland'])('Quick View custom lists
       const { filter } = resolveViewerFilter({ ...base, custom_list_id: 'list-1' }, [custom])
       const selected = selectViewerTasks(tasks, filter, { now }).map((t) => t.id)
       expect(selected, vector.name).toEqual(vector.expect)
+
+      const passesServerFilter = compileServerFilter(buildViewerFilterParams(filter, now).filter)
+      for (const t of tasks.filter((candidate) => vector.expect.includes(candidate.id))) {
+        expect(passesServerFilter(t), `${vector.name}: task ${t.id}`).toBe(true)
+      }
+    }
+  })
+})
+
+describe.each(['America/New_York', 'Pacific/Auckland'])('Quick View custom lists on the activity vectors in %s', (zone) => {
+  it('selects the expected tasks with the collaboration context, and the server filter keeps them', () => {
+    process.env.TZ = zone
+    const block = fixture.customListActivity
+    const tasks = block.tasks.map((t) => ({
+      id: t.id,
+      project_id: t.projectId,
+      done: t.done,
+      due_date: t.due === null ? NULL_DATE : local(t.due).toISOString(),
+      priority: 0,
+      labels: [],
+      assignees: t.assignees.map((id) => ({ id })),
+      comment_count: t.commentCount,
+      is_unread: t.unread,
+      updated: local(t.updated).toISOString(),
+    }))
+
+    for (const vector of block.vectors) {
+      const now = local(`${vector.today}T10:00:00`)
+      const custom: CustomList = {
+        id: 'list-1',
+        name: vector.name,
+        filter: { project_ids: [], sort_by: 'due_date', order_by: 'asc', due_date_filter: 'all', ...vector.filter },
+      }
+      const { filter } = resolveViewerFilter({ ...base, custom_list_id: 'list-1' }, [custom])
+      const context = { me: vector.signedOut ? null : block.me, isShared: (id: number) => block.shared.includes(id) }
+      expect(selectViewerTasks(tasks, filter, { now, context }).map((t) => t.id), vector.name).toEqual(vector.expect)
 
       const passesServerFilter = compileServerFilter(buildViewerFilterParams(filter, now).filter)
       for (const t of tasks.filter((candidate) => vector.expect.includes(candidate.id))) {

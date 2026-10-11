@@ -1,6 +1,6 @@
 import type { ViewerFilter } from '../config'
 import type { CustomList } from '../../shared/config-types'
-import { filterCustomList, type CustomListTask } from '../../shared/custom-list-filter'
+import { filterCustomList, type CustomListContext, type CustomListTask } from '../../shared/custom-list-filter'
 import { sortCustomListTasks, type CustomListSortable } from '../../shared/custom-list-sort'
 import { isUpcoming, toLocalDate } from '../../shared/due-dates'
 import { withoutNestedSubtasks } from '../../shared/nested-subtasks'
@@ -13,8 +13,8 @@ export interface ResolvedViewerFilter {
 
 /**
  * The filter Quick View actually applies. A viewer that points at a custom list takes that
- * list's conditions, including exclude mode, include_done, include_overdue, priorities and
- * labels. A plain filter stays as configured; its "today from all projects" option keeps meaning
+ * list's conditions, including exclude mode, include_done, include_overdue, priorities, labels
+ * and the collaboration and activity conditions. A plain filter stays as configured; its "today from all projects" option keeps meaning
  * tasks due exactly today (it has no overdue setting, and always has).
  */
 export function resolveViewerFilter(
@@ -40,6 +40,10 @@ export function resolveViewerFilter(
         include_overdue: filter.include_overdue,
         priority_filter: filter.priority_filter,
         label_ids: filter.label_ids,
+        assigned: filter.assigned,
+        comments: filter.comments,
+        shared_only: filter.shared_only,
+        changed_within_days: filter.changed_within_days,
       },
     }
   }
@@ -54,6 +58,8 @@ export interface SelectViewerTasksOptions {
   now?: Date
   /** The configured Inbox project; "anytime" leaves it out, like the main Anytime view. */
   inboxProjectId?: number
+  /** Who you are and which projects are shared, for a custom list's collaboration conditions. */
+  context?: CustomListContext
 }
 
 /**
@@ -78,7 +84,7 @@ export function selectViewerTasks<T extends CustomListTask>(
     case 'anytime':
       return tasks.filter((task) => !task.done && !(options.inboxProjectId && task.project_id === options.inboxProjectId))
     default:
-      return filterCustomList(tasks, viewerFilter, today)
+      return filterCustomList(tasks, viewerFilter, today, options.context)
   }
 }
 

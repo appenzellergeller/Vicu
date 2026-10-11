@@ -9,6 +9,7 @@ export type ProjectDialogRequest =
   | { kind: 'create'; parentId: number }
   | { kind: 'edit'; project: Project }
   | { kind: 'cadence'; project: Project }
+  | { kind: 'share'; project: Project }
 
 interface ProjectActionsState {
   dialog: ProjectDialogRequest | null

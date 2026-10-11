@@ -32,6 +32,39 @@ const api = {
   deleteTaskRelation: (taskId: number, relationKind: string, otherTaskId: number) =>
     ipcRenderer.invoke('delete-task-relation', taskId, relationKind, otherTaskId),
 
+  // Collaboration (docs/cross-app-semantics-v1.md section 9). Assignee and comment changes go
+  // through the write gate like the task writes above.
+  searchProjectUsers: (projectId: number) =>
+    ipcRenderer.invoke('search-project-users', projectId),
+  fetchProjectShares: (projectId: number) =>
+    ipcRenderer.invoke('fetch-project-shares', projectId),
+  searchUsers: (query: string) =>
+    ipcRenderer.invoke('search-users', query),
+  shareProject: (projectId: number, username: string, permission: number) =>
+    ipcRenderer.invoke('share-project', projectId, username, permission),
+  updateProjectShare: (projectId: number, username: string, permission: number) =>
+    ipcRenderer.invoke('update-project-share', projectId, username, permission),
+  removeProjectShare: (projectId: number, username: string) =>
+    ipcRenderer.invoke('remove-project-share', projectId, username),
+  fetchAvatar: (username: string, size: number) =>
+    ipcRenderer.invoke('fetch-avatar', username, size),
+  addTaskAssignee: (taskId: number, userId: number, options?: TaskWriteOptions) =>
+    ipcRenderer.invoke('add-task-assignee', taskId, userId, options),
+  removeTaskAssignee: (taskId: number, userId: number, options?: TaskWriteOptions) =>
+    ipcRenderer.invoke('remove-task-assignee', taskId, userId, options),
+  fetchTaskComments: (taskId: number, page: number) =>
+    ipcRenderer.invoke('fetch-task-comments', taskId, page),
+  createTaskComment: (taskId: number, html: string, options?: TaskWriteOptions) =>
+    ipcRenderer.invoke('create-task-comment', taskId, html, options),
+  updateTaskComment: (taskId: number, commentId: number, html: string, options?: TaskWriteOptions) =>
+    ipcRenderer.invoke('update-task-comment', taskId, commentId, html, options),
+  deleteTaskComment: (taskId: number, commentId: number, options?: TaskWriteOptions) =>
+    ipcRenderer.invoke('delete-task-comment', taskId, commentId, options),
+  markTaskRead: (taskId: number) =>
+    ipcRenderer.invoke('mark-task-read', taskId),
+  setTaskSubscription: (taskId: number, subscribed: boolean) =>
+    ipcRenderer.invoke('set-task-subscription', taskId, subscribed),
+
   // Projects
   countProjectTasks: (projectId: number, done: boolean) =>
     ipcRenderer.invoke('count-project-tasks', projectId, done),

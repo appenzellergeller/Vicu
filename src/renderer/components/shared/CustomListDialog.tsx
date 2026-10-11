@@ -4,7 +4,13 @@ import { cn } from '@/lib/cn'
 import { Dialog } from '@/components/overlay/Dialog'
 import { useProjects } from '@/hooks/use-projects'
 import { useLabels } from '@/hooks/use-labels'
-import { windowHonorsIncludeOverdue } from '@/lib/custom-list-filter'
+import { useSharedProjectIds } from '@/hooks/use-project-access'
+import {
+  ASSIGNED_VALUES,
+  COMMENTS_VALUES,
+  changedWithinDays,
+  windowHonorsIncludeOverdue,
+} from '@/lib/custom-list-filter'
 import type { CustomList, CustomListFilter } from '@/lib/vikunja-types'
 
 interface CustomListDialogProps {
@@ -33,6 +39,33 @@ const DUE_DATE_OPTIONS = [
   { value: 'has_due_date', label: 'Has Due Date' },
   { value: 'no_due_date', label: 'No Due Date' },
 ] as const
+
+// "Changed" counts local days with today included (cross-app semantics 3.3); 0 is no condition.
+const CHANGED_OPTIONS = [
+  { value: 0, label: 'Any time' },
+  { value: 1, label: 'Today' },
+  { value: 3, label: 'In the last 3 days' },
+  { value: 7, label: 'In the last 7 days' },
+  { value: 30, label: 'In the last 30 days' },
+] as const
+
+const ASSIGNED_OPTIONS: ReadonlyArray<{ value: (typeof ASSIGNED_VALUES)[number] | ''; label: string }> = [
+  { value: '', label: 'Any task' },
+  { value: 'me', label: 'To me' },
+  { value: 'others', label: 'To someone else' },
+  { value: 'nobody', label: 'To nobody' },
+]
+
+const COMMENTS_OPTIONS: ReadonlyArray<{ value: (typeof COMMENTS_VALUES)[number] | ''; label: string }> = [
+  { value: '', label: 'Any task' },
+  { value: 'unread', label: 'Unread comments' },
+  { value: 'any', label: 'Has comments' },
+]
+
+/** A value this version does not offer (from a newer app) stays selectable, so saving keeps it. */
+function isOffered(value: string, options: ReadonlyArray<{ value: string }>): boolean {
+  return options.some((option) => option.value === value)
+}
 
 const PRIORITY_OPTIONS = [
   { value: 0, label: 'None' },
@@ -65,6 +98,7 @@ export function CustomListDialog({ open, list, onSave, onClose }: CustomListDial
   const [filter, setFilter] = useState<CustomListFilter>(DEFAULT_FILTER)
   const { data: projectData } = useProjects()
   const { data: labels } = useLabels()
+  const sharedProjectIds = useSharedProjectIds()
 
   useEffect(() => {
     if (list) {
@@ -122,6 +156,12 @@ export function CustomListDialog({ open, list, onSave, onClose }: CustomListDial
   }
 
   const allProjects = projectData?.flat ?? []
+  const changedDays = changedWithinDays(filter)
+  const assigned = typeof filter.assigned === 'string' ? filter.assigned : ''
+  const comments = typeof filter.comments === 'string' ? filter.comments : ''
+  // The collaboration conditions only mean something once a project is shared; a list that
+  // already has one (synced from another device) shows them so they can be changed.
+  const showCollaboration = sharedProjectIds.size > 0 || assigned !== '' || comments !== '' || filter.shared_only === true
 
   return (
     <Dialog open onClose={onClose} labelledBy={titleId} className="w-[440px]">
@@ -221,6 +261,27 @@ export function CustomListDialog({ open, list, onSave, onClose }: CustomListDial
               Include overdue tasks
             </label>
           )}
+        </div>
+
+        {/* Changed */}
+        <div>
+          <label htmlFor={`${titleId}-changed`} className="mb-1 block text-xs text-[var(--text-secondary)]">Changed</label>
+          <select
+            id={`${titleId}-changed`}
+            value={changedDays ?? 0}
+            onChange={(e) => {
+              const days = Number(e.target.value)
+              setFilter((f) => ({ ...f, changed_within_days: days > 0 ? days : undefined }))
+            }}
+            className="w-full rounded-control border border-[var(--border-color)] bg-[var(--bg-secondary)] px-3 py-2 text-sm text-[var(--text-primary)]"
+          >
+            {CHANGED_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+            {changedDays !== null && !CHANGED_OPTIONS.some((o) => o.value === changedDays) && (
+              <option value={changedDays}>In the last {changedDays} days</option>
+            )}
+          </select>
         </div>
 
         {/* Projects */}
@@ -342,6 +403,55 @@ export function CustomListDialog({ open, list, onSave, onClose }: CustomListDial
               ))}
             </div>
           </div>
+        )}
+
+        {/* Collaboration */}
+        {showCollaboration && (
+          <fieldset className="space-y-2">
+            <legend className="mb-1 text-xs text-[var(--text-secondary)]">Shared projects</legend>
+            <div className="flex gap-3">
+              <div className="flex-1">
+                <label htmlFor={`${titleId}-assigned`} className="mb-1 block text-xs text-[var(--text-secondary)]">Assigned</label>
+                <select
+                  id={`${titleId}-assigned`}
+                  value={assigned}
+                  onChange={(e) => setFilter((f) => ({ ...f, assigned: e.target.value || undefined }))}
+                  className="w-full rounded-control border border-[var(--border-color)] bg-[var(--bg-secondary)] px-3 py-2 text-sm text-[var(--text-primary)]"
+                >
+                  {ASSIGNED_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                  {!isOffered(assigned, ASSIGNED_OPTIONS) && <option value={assigned}>Set by a newer version</option>}
+                </select>
+              </div>
+              <div className="flex-1">
+                <label htmlFor={`${titleId}-comments`} className="mb-1 block text-xs text-[var(--text-secondary)]">Comments</label>
+                <select
+                  id={`${titleId}-comments`}
+                  value={comments}
+                  onChange={(e) => setFilter((f) => ({ ...f, comments: e.target.value || undefined }))}
+                  className="w-full rounded-control border border-[var(--border-color)] bg-[var(--bg-secondary)] px-3 py-2 text-sm text-[var(--text-primary)]"
+                >
+                  {COMMENTS_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                  {!isOffered(comments, COMMENTS_OPTIONS) && <option value={comments}>Set by a newer version</option>}
+                </select>
+              </div>
+            </div>
+            <label className="flex cursor-pointer items-center gap-2 text-xs text-[var(--text-primary)]">
+              <input
+                type="checkbox"
+                checked={filter.shared_only === true}
+                onChange={(e) => setFilter((f) => ({ ...f, shared_only: e.target.checked || undefined }))}
+                className="accent-accent-blue"
+              />
+              Only tasks in shared projects
+            </label>
+            <p className="text-xs text-[var(--text-secondary)]">
+              Assigned and Comments only match tasks in projects someone else can see.
+            </p>
+          </fieldset>
         )}
 
         {/* Include Done */}

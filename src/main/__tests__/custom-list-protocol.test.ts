@@ -322,3 +322,44 @@ describe('pruneTombstones', () => {
     expect(pruneTombstones(document, now)).toEqual(document)
   })
 })
+
+describe('collaboration and activity conditions (cross-app semantics 3.3)', () => {
+  const withFilter = (extra: Record<string, unknown>) =>
+    normalizeWireList({ ...list('a'), filter: { ...list('a').filter, ...extra } as CustomListWire['filter'] })
+
+  it('are absent when nobody set them, so lists are not rewritten on load', () => {
+    const filter = normalizeWireList(list('a')).filter
+    for (const key of ['assigned', 'comments', 'shared_only', 'changed_within_days']) {
+      expect(key in filter, key).toBe(false)
+    }
+  })
+
+  it('keeps the values that are set', () => {
+    const filter = withFilter({ assigned: 'me', comments: 'unread', shared_only: true, changed_within_days: 7 }).filter
+    expect(filter).toMatchObject({ assigned: 'me', comments: 'unread', shared_only: true, changed_within_days: 7 })
+  })
+
+  it('keeps a string value from a newer app and drops empty or mistyped ones', () => {
+    expect(withFilter({ assigned: 'team', comments: 'mentions' }).filter).toMatchObject({ assigned: 'team', comments: 'mentions' })
+    const dropped = withFilter({ assigned: '', comments: 3, shared_only: false }).filter
+    expect('assigned' in dropped).toBe(false)
+    expect('comments' in dropped).toBe(false)
+    expect('shared_only' in dropped).toBe(false)
+  })
+
+  it('writes changed_within_days only as a whole number of 1 or more', () => {
+    for (const value of [0, -2, 1.5, '7', null]) {
+      expect('changed_within_days' in withFilter({ changed_within_days: value }).filter, String(value)).toBe(false)
+    }
+    expect(withFilter({ changed_within_days: 1 }).filter.changed_within_days).toBe(1)
+  })
+
+  it('survive the envelope, a merge and the round trip through the app config', () => {
+    const lists = [{ ...list('a'), filter: { ...list('a').filter, assigned: 'others', changed_within_days: 3 } }]
+    const parsed = parseCustomListEnvelope(encodeCustomListEnvelope(documentFromLists(lists, 'desktop', 100))).document!
+    const merged = mergeCustomListDocuments(parsed, documentFromLists([list('b')], 'android', 50))
+    const synced = activeLists(merged).find((entry) => entry.id === 'a')!
+    expect(synced.filter).toMatchObject({ assigned: 'others', changed_within_days: 3 })
+    expect(appListToWire(wireToAppList(synced))).toEqual(synced)
+  })
+})

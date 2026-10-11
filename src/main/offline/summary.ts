@@ -54,6 +54,16 @@ export function describeAction(action: QueuedAction, titles: ReadonlyMap<number,
       return `Remove label #${action.labelId} from ${name}`
     case 'upload-attachment':
       return `Attach ${quoted(action.name) || 'a file'} to ${name}`
+    case 'add-assignee':
+      return `Assign ${action.username ? `@${action.username}` : `user #${action.userId}`} to ${name}`
+    case 'remove-assignee':
+      return `Unassign ${action.username ? `@${action.username}` : `user #${action.userId}`} from ${name}`
+    case 'create-comment':
+      return `Comment on ${name}`
+    case 'update-comment':
+      return `Edit a comment on ${name}`
+    case 'delete-comment':
+      return `Delete a comment on ${name}`
     case 'update': {
       const keys = Object.keys(action.patch)
       if (keys.length === 1 && keys[0] === 'done') return `${action.patch.done === true ? 'Complete' : 'Reopen'} ${name}`

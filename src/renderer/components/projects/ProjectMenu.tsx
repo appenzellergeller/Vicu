@@ -13,6 +13,7 @@ import {
   SlidersHorizontal,
   Timer,
   Trash2,
+  Users,
   EyeOff,
   Eye,
 } from 'lucide-react'
@@ -25,6 +26,7 @@ import { useSidebarCollapsed } from '@/hooks/use-sidebar-collapsed'
 import { normalizeHex } from '@/lib/constants'
 import { childrenOf, descendantIds, effectiveParent, placeAt, TOP_LEVEL } from '@/lib/project-moves'
 import { parseReviewFooter } from '@/lib/review-metadata'
+import { effectivePermission } from '@/lib/collaboration'
 import { projectActions, type ProjectSurface } from '@/stores/project-actions-store'
 import type { Project } from '@/lib/vikunja-types'
 import { parentOptions } from './ProjectDialog'
@@ -115,6 +117,8 @@ export function ProjectMenu({ project, surface, anchorRef, anchorPoint, opener =
   const excludeInbox = config?.review?.exclude_inbox ?? true
   const reviewState = parseReviewFooter(project.description).state
   const showReview = reviewEnabled && !(isInbox && excludeInbox)
+  // Only a project admin may share it (cross-app semantics 9.7).
+  const canShare = effectivePermission(project.max_permission, project.is_archived) === 2
   const label = `${project.title} actions`
 
   // A picker or submenu closes the menu too once something was chosen; Escape or a press
@@ -147,6 +151,11 @@ export function ProjectMenu({ project, surface, anchorRef, anchorPoint, opener =
       <MenuItem icon={<SlidersHorizontal />} onSelect={() => projectActions.openDialog({ kind: 'edit', project }, opener)}>
         Edit…
       </MenuItem>
+      {canShare && (
+        <MenuItem icon={<Users />} onSelect={() => projectActions.openDialog({ kind: 'share', project }, opener)}>
+          Share…
+        </MenuItem>
+      )}
       <MenuItem
         icon={<FolderPlus />}
         onSelect={() => {

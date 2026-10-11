@@ -18,6 +18,8 @@ export interface ReplayHandlerDeps {
  *   are still waiting the lists are left alone, otherwise the refetch would erase the optimistic
  *   state of the changes that are still queued.
  * - Anything that was applied can move reminders.
+ * - Comment threads refetch after anything was applied or failed: the main process lays what is still
+ *   queued over them, so this is safe while changes wait, and turns sent comments from pending into real.
  */
 export function handleReplayed(qc: QueryClient, event: OfflineReplayEvent, deps: ReplayHandlerDeps): void {
   const idMap = new Map<number, number>()
@@ -32,4 +34,5 @@ export function handleReplayed(qc: QueryClient, event: OfflineReplayEvent, deps:
 
   if (event.counts.pending === 0 && (event.applied > 0 || event.failed > 0)) invalidateTaskData(qc)
   if (event.applied > 0) deps.refreshReminders()
+  if (event.applied > 0 || event.failed > 0) void qc.invalidateQueries({ queryKey: ['task-comments'] })
 }

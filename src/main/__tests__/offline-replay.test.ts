@@ -19,6 +19,8 @@ function fakeApi(script: Script = {}) {
   const labels = [{ id: 11, title: 'Home' }]
   const attachments: Array<{ id: number }> = []
   const descriptions = new Map<number, string>()
+  let nextCommentId = 7000
+  const comments = new Map<number, string>()
 
   const record = async <T>(op: keyof ReplayApi, args: unknown[], fallback: () => ApiResult<T>): Promise<ApiResult<T>> => {
     calls.push({ op, args })
@@ -56,8 +58,27 @@ function fakeApi(script: Script = {}) {
     fetchTaskAttachments: (taskId) => record('fetchTaskAttachments', [taskId], () => ok(attachments.slice())),
     fetchTaskById: (taskId) => record('fetchTaskById', [taskId], () => ok({ id: taskId, description: descriptions.get(taskId) ?? '' })),
     findRecentCreate: (projectId, fields, since) => record('findRecentCreate', [projectId, fields.title, since], () => ok(null)),
+    addTaskAssignee: (taskId, userId) => record('addTaskAssignee', [taskId, userId], () => ok(null)),
+    removeTaskAssignee: (taskId, userId) => record('removeTaskAssignee', [taskId, userId], () => ok(undefined)),
+    createTaskComment: (taskId, html) =>
+      record('createTaskComment', [taskId, html], () => {
+        const id = nextCommentId++
+        comments.set(id, html)
+        return ok({ id, comment: html })
+      }),
+    updateTaskComment: (taskId, commentId, html) =>
+      record('updateTaskComment', [taskId, commentId, html], () => {
+        comments.set(commentId, html)
+        return ok({ id: commentId, comment: html })
+      }),
+    deleteTaskComment: (taskId, commentId) =>
+      record('deleteTaskComment', [taskId, commentId], () => {
+        comments.delete(commentId)
+        return ok(undefined)
+      }),
+    findRecentComment: (taskId, html, since) => record('findRecentComment', [taskId, html, since], () => ok(null)),
   }
-  return { api, calls, ops: () => calls.map((c) => c.op), descriptions }
+  return { api, calls, ops: () => calls.map((c) => c.op), descriptions, comments }
 }
 
 describe('replayQueue', () => {

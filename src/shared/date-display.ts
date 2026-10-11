@@ -28,6 +28,7 @@ export type DateContext =
   | 'header.full'
   | 'logbook.group'
   | 'logbook.time'
+  | 'comment.day'
 
 interface Pattern {
   dayMonth: string
@@ -242,8 +243,8 @@ function rowDay(diff: number, value: Date, now: Date, p: Phrases): string {
 
 /**
  * The text of a date for one context (section 8.3 of the contract). `dateOnly` says the value has
- * no time of day (section 1.2); it is ignored by the logbook contexts, whose value is always a
- * completion time. An empty string means there is nothing to show.
+ * no time of day (section 1.2); it is ignored by the logbook and comment contexts, whose value is always a
+ * moment that has happened. An empty string means there is nothing to show.
  */
 export function formatDateDisplay(
   context: DateContext,
@@ -280,6 +281,11 @@ export function formatDateDisplay(
       return p.monthYear(value)
     case 'logbook.time':
       return p.time(value, fmt.hour12)
+    case 'comment.day':
+      // The day divider of a comment thread; a comment a little in the future counts as today.
+      if (diff >= 0) return WORDS.today
+      if (diff === -1) return WORDS.yesterday
+      return weekdayDate(value, now, p)
   }
 }
 

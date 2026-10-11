@@ -9,14 +9,44 @@ import {
   finishTaskCollection,
   readEnvelopeTotal,
   withoutNestedSubtasks,
+  COLLAB_SIGNALS_PARAM,
+  buildTaskCommentsUrl,
+  readCommentPage,
+  sniffImageType,
 } from '../api-v2'
 
 describe('project collection URL', () => {
   it('requests archived projects only when the complete snapshot is needed', () => {
     expect(buildProjectCollectionUrl('https://vikunja.example/', true))
-      .toBe('https://vikunja.example/api/v2/projects?is_archived=true')
+      .toBe('https://vikunja.example/api/v2/projects?is_archived=true&expand=permissions')
     expect(buildProjectCollectionUrl('https://vikunja.example/', false))
-      .toBe('https://vikunja.example/api/v2/projects')
+      .toBe('https://vikunja.example/api/v2/projects?expand=permissions')
+  })
+})
+
+describe('collaboration requests', () => {
+  it('asks for comment counts and unread flags only when told to, as repeated expands', () => {
+    expect(createTaskCollectionSearchParams({}).getAll('expand')).toEqual(['subtasks'])
+    const params = createTaskCollectionSearchParams({ [COLLAB_SIGNALS_PARAM]: true, filter: 'done = false' })
+    expect(params.getAll('expand')).toEqual(['subtasks', 'comment_count', 'is_unread'])
+    expect(params.has(COLLAB_SIGNALS_PARAM)).toBe(false)
+  })
+
+  it('reads comments newest first, 50 a page', () => {
+    expect(buildTaskCommentsUrl('https://vikunja.example/', 12, 2)).toBe(
+      'https://vikunja.example/api/v2/tasks/12/comments?order_by=desc&per_page=50&page=2',
+    )
+    expect(readCommentPage({ items: [{ id: 1 }], total_pages: 3 }, 2)).toEqual({ items: [{ id: 1 }], page: 2, totalPages: 3 })
+    expect(readCommentPage({ items: null }, 1)).toEqual({ items: [], page: 1, totalPages: 1 })
+  })
+
+  it('recognises avatar images by their first bytes', () => {
+    const enc = (s: string) => new TextEncoder().encode(s)
+    expect(sniffImageType(enc('<svg viewBox="0 0 1 1"></svg>'))).toBe('image/svg+xml')
+    expect(sniffImageType(enc('<?xml version="1.0"?>\n<svg width="1">'))).toBe('image/svg+xml')
+    expect(sniffImageType(Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))).toBe('image/png')
+    expect(sniffImageType(Uint8Array.from([0xff, 0xd8, 0xff, 0xe0]))).toBe('image/jpeg')
+    expect(sniffImageType(enc('<html><script>x</script>'))).toBeNull()
   })
 })
 

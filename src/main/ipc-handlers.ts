@@ -67,9 +67,10 @@ import { buildViewerFilterParams } from './quick-entry/filter-builder'
 import { forgetDeletedTask, loadRoutineCarriers, rememberCreatedTask } from './carrier-service'
 import { countProjectTasks, invalidateProjectCounts } from './project-counts-service'
 import { dueToday } from '../shared/due-dates'
-import { KEEP_NESTED_SUBTASKS_PARAM } from './api-v2'
+import { COLLAB_SIGNALS_PARAM, KEEP_NESTED_SUBTASKS_PARAM } from './api-v2'
+import { hasCollaborationCondition, needsCommentSignals, type CustomListContext } from '../shared/custom-list-filter'
 import { fetchPositionSortedTasks } from './quick-entry/position-sort'
-import { activeProjects, invalidateViewerCaches, projectListViewIds } from './quick-entry/viewer-caches'
+import { activeProjects, invalidateViewerCaches, projectListViewIds, viewerCollab } from './quick-entry/viewer-caches'
 import { cachedFallback } from './quick-entry/fetch-fallback'
 import { resolveViewerFilter, selectQuickViewTasks } from './quick-entry/viewer-filter'
 import {
@@ -98,9 +99,10 @@ import {
 
 import { printHtml } from './print'
 import { uploadStandaloneTasks } from './standalone-upload'
-import { getOfflineQueue, rememberKnownUser } from './offline/service'
+import { getOfflineQueue, knownUserIdFor, rememberKnownUser } from './offline/service'
 import { registerOfflineQueueIpc } from './offline/ipc'
-import { accountChanged, replayPendingActions } from './sync'
+import { registerCollaborationIpc } from './collab-ipc'
+import { accountChanged, refreshKnownUser, replayPendingActions } from './sync'
 import {
   createFromQuickEntry,
   queueQuickEntryFollowUps,
@@ -208,6 +210,7 @@ function projectIdOf(task: unknown): number | undefined {
 
 export function registerIpcHandlers(): void {
   registerOfflineQueueIpc()
+  registerCollaborationIpc()
 
   // Tasks
   handleTrusted('fetch-tasks', (_event, params: Record<string, unknown>) => {
@@ -606,6 +609,8 @@ export function registerIpcHandlers(): void {
       // A custom list filters before hiding nested subtasks, so a matching subtask whose
       // parent does not match is still shown (cross-app semantics v1, section 3.2).
       ...(fromCustomList ? { [KEEP_NESTED_SUBTASKS_PARAM]: true } : {}),
+      // A list that looks at comments needs the counts and the unread flag (section 3.3).
+      ...(fromCustomList && needsCommentSignals(effectiveFilter) ? { [COLLAB_SIGNALS_PARAM]: true } : {}),
     } as unknown as Record<string, unknown>
 
     // Position sort needs special handling via project views
@@ -634,11 +639,20 @@ export function registerIpcHandlers(): void {
     }
 
     if (result.success) {
+      const fetched = (result.data ?? []) as Array<{ project_id: number; done?: boolean; due_date?: string | null; priority?: number; labels?: Array<{ id: number }> | null; assignees?: Array<{ id: number }> | null; comment_count?: number; is_unread?: boolean; description?: string; position?: number; created?: string; updated?: string; done_at?: string; title?: string }>
+      // Who you are and which projects are shared, only for a list that asks (section 3.3).
+      let context: CustomListContext | undefined
+      if (fromCustomList && hasCollaborationCondition(effectiveFilter)) {
+        await refreshKnownUser()
+        const me = knownUserIdFor(config.vikunja_url) ?? null
+        context = await viewerCollab.contextFor(config.vikunja_url, me, fetched.map((task) => task.project_id))
+      }
       const tasks = selectQuickViewTasks(
-        (result.data ?? []) as Array<{ project_id: number; done?: boolean; due_date?: string | null; priority?: number; labels?: Array<{ id: number }> | null; description?: string; position?: number; created?: string; updated?: string; done_at?: string; title?: string }>,
+        fetched,
         resolved,
         {
           now,
+          context,
           inboxProjectId: config.inbox_project_id,
           keep: (task) => !hasVicuMetadataMarker(task.description)
             && (!activeProjectIds || activeProjectIds.has(task.project_id)),

@@ -7,6 +7,7 @@ import { parseReviewFooter } from '@/lib/review-metadata'
 import { projectActions, useProjectActionsStore } from '@/stores/project-actions-store'
 import type { Project } from '@/lib/vikunja-types'
 import { ProjectDialog } from './ProjectDialog'
+import { ShareProjectDialog } from './ShareProjectDialog'
 
 function ReviewCadenceDialog({
   project,
@@ -79,6 +80,16 @@ export function ProjectActionsHost() {
   const returnFocusTo = useProjectActionsStore((s) => s.returnFocusTo)
   if (!dialog) return null
 
+  if (dialog.kind === 'share') {
+    return (
+      <ShareProjectDialog
+        key={`share-${dialog.project.id}`}
+        project={dialog.project}
+        returnFocusTo={returnFocusTo}
+        onClose={projectActions.closeDialog}
+      />
+    )
+  }
   if (dialog.kind === 'cadence') {
     return (
       <ReviewCadenceDialog

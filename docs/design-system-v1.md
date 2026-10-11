@@ -108,12 +108,49 @@ A task row, left to right:
   least 24 px on desktop and 48 dp on Android);
 - the body: the title (`taskTitle`) on line 1, level with the checkbox, and under it the meta line
   (`meta`, `text.secondary`) holding the project when the list or group does not imply it, label
-  chips, the checklist count ("1 of 3"), a notes icon and the repeat icon;
-- the trailing cluster: the due phrase (a time or the overdue age), the reminder bell, and the
-  priority mark last.
+  chips, the checklist count ("1 of 3"), a notes icon, the repeat icon, the attachment icon and,
+  last, the comment count;
+- the trailing cluster: the assignee avatars, the due phrase (a time or the overdue age), the
+  reminder bell, and the priority mark last.
 
 A row is at most two lines. It never repeats what the view already says: no "Today" in Today, no
 day under a day header, no current tag in a Tag view, no project inside its own project.
+
+Collaboration signals (`cross-app-semantics-v1.md` section 9) appear only on tasks of shared
+projects, and only when they carry information; an unassigned task without comments in a shared
+project looks exactly like a task in a private project.
+
+- **Comment count**: shown when `comment_count` > 0. A comment icon (12 px desktop, 14 dp Android)
+  and the number, in the meta style. It is its own target (24 px desktop, 48 dp Android) that opens
+  the task's comments; its name is "4 comments" or "2 comments, new". When the task is unread, the
+  count is `accent` (Android `primary`) at weight 600 (Android bold) and a dot of the same colour
+  (6 px desktop, 7 dp Android) with a 1.5 ring of the row surface sits at the icon's top right; the
+  weight change keeps the state visible without colour.
+- **Avatars**: shown when the task has assignees. Circles of 18 px (20 dp), each after the first
+  overlapping the one before by 5 and ringed 1.5 in the row surface; at most two, then "+N"
+  (`caption`, `text.secondary`). People are ordered as in the contract (you first). The group's
+  name is "Assigned to you, Maya". In forced colours an avatar gets an outline.
+- **Avatar fallback**: until the server's image arrives, or when it fails, the first letter of the
+  display name on `bg.selected` in `accent` (Android `secondaryContainer` and
+  `onSecondaryContainer`). It is decoration and never carries meaning.
+
+### 4.1 Open task properties
+
+The open task (the desktop card bar, the Android editor) lists its properties in one order on both
+apps: Date, Priority, Label, Checklist, Reminder, Repeat, Project, **Assign**, Attachments,
+**Comments**, More. A set property is a chip with a border, an unset one a quiet "+ Name".
+
+- **Assign** exists only on shared projects. Unset: "+ Assign". Set: a stack of up to three avatars
+  (16 px desktop, 20 dp Android) and the name list ("You, Maya"); named "Assigned: You, Maya". It
+  opens a list of the project's members (desktop popover, Android bottom sheet) with a check per
+  assignee; read-only members are disabled with "Can view only"; a pick toggles at once and the
+  list stays open; the footer says "People {Project} is shared with. Assigned people get a
+  notification." With read-only access the chip shows the assignees and does not open.
+- **Comments** exists only on shared projects, at the end before More. Without comments it is the
+  icon alone; with comments the icon and the count in the set style; it carries the unread dot
+  until the comments are open. Desktop: it toggles the comments pane (Mod+Shift+C) and uses the open
+  style while the pane shows. Android: it opens the Comments screen. Comments are never listed
+  inside the card or the editor.
 
 The due date phrase comes from `cross-app-semantics-v1.md` section 8 and takes its colour from
 the status: overdue `status.overdue`, due today `status.today`, anything else `text.secondary`.
@@ -218,8 +255,8 @@ Haptics follow the system touch feedback setting.
 |---|---|
 | `test-fixtures/design-tokens-v1.json` | the values (this document is its prose) |
 | `docs/design-system-v1.md` | this document |
-| `docs/cross-app-semantics-v1.md` | date phrasing and the completion hold |
-| `test-fixtures/cross-app-semantics-v1.json` | their vectors (`dateDisplay`, `completion`) |
+| `docs/cross-app-semantics-v1.md` | date phrasing, the completion hold and collaboration |
+| `test-fixtures/cross-app-semantics-v1.json` | their vectors (`dateDisplay`, `completion`, `collaboration`) |
 
 Each repo has a local test that compares these files (and the other shared fixtures and
 documents) with the sibling checkout when it sits next to the repo, and is skipped otherwise.

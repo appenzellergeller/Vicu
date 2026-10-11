@@ -38,6 +38,8 @@ export interface PopoverProps {
   /** For a combobox that points at it with aria-controls. */
   id?: string
   role?: PopoverRole
+  /** A listbox where several options can be chosen at once (Assign). */
+  multiselectable?: boolean
   placement?: Placement
   /** Where focus goes on open: the first control (default), the popover itself, nowhere, or a selector. */
   initialFocus?: PopoverInitialFocus
@@ -67,6 +69,7 @@ export function Popover({
   label,
   id,
   role = 'dialog',
+  multiselectable,
   placement = 'bottom-start',
   initialFocus = 'first',
   onKeyDown: onKeyDownProp,
@@ -177,6 +180,7 @@ export function Popover({
       popover="auto"
       role={role}
       aria-label={label}
+      aria-multiselectable={role === 'listbox' && multiselectable ? true : undefined}
       tabIndex={-1}
       onKeyDown={onKeyDown}
       className={cn(

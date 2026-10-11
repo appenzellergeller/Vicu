@@ -25,6 +25,11 @@ export interface TaskWriteSpec {
   taskId: number
   send(): Promise<ApiResult<unknown>>
   enqueue(): Promise<unknown>
+  /**
+   * 'create' for a write that is not idempotent (a new comment): it is queued only when the request
+   * provably never reached the server, as for a task create. Default 'change'.
+   */
+  kind?: 'change' | 'create'
 }
 
 export type TaskWriteOutcome =
@@ -34,7 +39,7 @@ export type TaskWriteOutcome =
    * The change is in the queue. `behind-queue`: the task already had changes waiting; `unreachable`:
    * the server could not be reached or is having trouble.
    */
-  | { kind: 'queued'; reason: 'behind-queue' | 'unreachable' }
+  | { kind: 'queued'; reason: 'behind-queue' | 'unreachable'; /** What the enqueue of a create returned (a comment's temp id). */ enqueued?: unknown }
   /** Nothing was sent or queued; `result` says why (the server refused it, or the caller cannot queue). */
   | { kind: 'refused'; result: ApiError }
 
@@ -50,7 +55,7 @@ export interface TaskWriteDeps {
 
 const titleMeta = (title?: string): { title?: string } => (title ? { title } : {})
 
-/** Specs for the four writes the app makes to an existing task. */
+/** Specs for the writes the app makes to an existing task (its fields, labels, assignees and comments). */
 export const taskWrites = {
   update(
     queue: OfflineQueue,
@@ -88,6 +93,73 @@ export const taskWrites = {
       taskId,
       send: () => api.addLabelToTask(taskId, label.id),
       enqueue: () => queue.enqueueAddLabel(taskId, label.title ? { id: label.id, title: label.title } : { id: label.id }, titleMeta(title)),
+    }
+  },
+  addAssignee(
+    queue: OfflineQueue,
+    api: { addTaskAssignee(taskId: number, userId: number): Promise<ApiResult<unknown>> },
+    taskId: number,
+    user: { id: number; username?: string },
+    title?: string
+  ): TaskWriteSpec {
+    return {
+      taskId,
+      send: () => api.addTaskAssignee(taskId, user.id),
+      enqueue: () => queue.enqueueAddAssignee(taskId, user.id, { ...titleMeta(title), ...(user.username ? { username: user.username } : {}) }),
+    }
+  },
+  removeAssignee(
+    queue: OfflineQueue,
+    api: { removeTaskAssignee(taskId: number, userId: number): Promise<ApiResult<unknown>> },
+    taskId: number,
+    user: { id: number; username?: string },
+    title?: string
+  ): TaskWriteSpec {
+    return {
+      taskId,
+      send: () => api.removeTaskAssignee(taskId, user.id),
+      enqueue: () => queue.enqueueRemoveAssignee(taskId, user.id, { ...titleMeta(title), ...(user.username ? { username: user.username } : {}) }),
+    }
+  },
+  createComment(
+    queue: OfflineQueue,
+    api: { createTaskComment(taskId: number, html: string): Promise<ApiResult<unknown>> },
+    taskId: number,
+    html: string,
+    title?: string
+  ): TaskWriteSpec {
+    return {
+      taskId,
+      kind: 'create',
+      send: () => api.createTaskComment(taskId, html),
+      enqueue: () => queue.enqueueCreateComment(taskId, html, titleMeta(title)),
+    }
+  },
+  updateComment(
+    queue: OfflineQueue,
+    api: { updateTaskComment(taskId: number, commentId: number, html: string): Promise<ApiResult<unknown>> },
+    taskId: number,
+    commentId: number,
+    html: string,
+    title?: string
+  ): TaskWriteSpec {
+    return {
+      taskId,
+      send: () => api.updateTaskComment(taskId, commentId, html),
+      enqueue: () => queue.enqueueUpdateComment(taskId, commentId, html, titleMeta(title)),
+    }
+  },
+  deleteComment(
+    queue: OfflineQueue,
+    api: { deleteTaskComment(taskId: number, commentId: number): Promise<ApiResult<unknown>> },
+    taskId: number,
+    commentId: number,
+    title?: string
+  ): TaskWriteSpec {
+    return {
+      taskId,
+      send: () => api.deleteTaskComment(taskId, commentId),
+      enqueue: () => queue.enqueueDeleteComment(taskId, commentId, titleMeta(title)),
     }
   },
   removeLabel(
@@ -202,13 +274,15 @@ export function writeTask(deps: TaskWriteDeps, spec: TaskWriteSpec, options: Pic
   const canQueue = options.queue === true
 
   const enqueue = async (reason: 'behind-queue' | 'unreachable', original?: { statusCode?: number }): Promise<TaskWriteOutcome> => {
+    let enqueued: unknown
     try {
-      await spec.enqueue()
+      enqueued = await spec.enqueue()
     } catch (err) {
       return { kind: 'refused', result: saveFailed(err, original?.statusCode) }
     }
     if (reason === 'behind-queue') deps.requestReplay?.()
-    return { kind: 'queued', reason }
+    // A queued create answers what the queue made of it (a comment's temp id); a change answers nothing more.
+    return spec.kind === 'create' ? { kind: 'queued', reason, enqueued } : { kind: 'queued', reason }
   }
 
   return runInOrder(queue, spec.taskId, async (): Promise<TaskWriteOutcome> => {
@@ -228,7 +302,7 @@ export function writeTask(deps: TaskWriteDeps, spec: TaskWriteSpec, options: Pic
       if (queue.counts().pending > 0) deps.requestReplay?.()
       return { kind: 'sent', result }
     }
-    if (canQueue && isQueueableFailure(result, 'change')) return enqueue('unreachable', result)
+    if (canQueue && isQueueableFailure(result, spec.kind ?? 'change')) return enqueue('unreachable', result)
     return { kind: 'refused', result }
   })
 }
@@ -248,5 +322,6 @@ export function parseTaskWriteOptions(value: unknown): TaskWriteOptions {
   if (raw.queue === true) options.queue = true
   if (typeof raw.title === 'string' && raw.title) options.title = raw.title
   if (typeof raw.labelTitle === 'string' && raw.labelTitle) options.labelTitle = raw.labelTitle
+  if (typeof raw.username === 'string' && raw.username) options.username = raw.username
   return options
 }

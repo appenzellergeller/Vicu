@@ -87,6 +87,47 @@
     { "name": "this_month near month end without overdue", "today": "2026-10-30", "filter": { "due_date_filter": "this_month", "include_overdue": false }, "expect": [8] },
     { "name": "this_month on the first without overdue", "today": "2026-11-01", "filter": { "due_date_filter": "this_month", "include_overdue": false }, "expect": [9] }
   ],
+  "customListActivity": {
+    "about": "Section 3.3. Every vector also has due_date_filter all. Projects 20 and 21 are shared, 30 is not. Times are local wall-clock times.",
+    "me": 1,
+    "shared": [20, 21],
+    "tasks": [
+      { "id": 1, "projectId": 20, "due": "2026-10-06T23:59:59", "done": false, "assignees": [1], "commentCount": 2, "unread": false, "updated": "2026-10-06T09:00:00" },
+      { "id": 2, "projectId": 20, "due": null, "done": false, "assignees": [1, 2], "commentCount": 0, "unread": false, "updated": "2026-10-05T23:30:00" },
+      { "id": 3, "projectId": 20, "due": null, "done": false, "assignees": [2], "commentCount": 4, "unread": true, "updated": "2026-10-04T08:00:00" },
+      { "id": 4, "projectId": 21, "due": null, "done": false, "assignees": [], "commentCount": 1, "unread": true, "updated": "2026-09-29T12:00:00" },
+      { "id": 5, "projectId": 21, "due": null, "done": false, "assignees": [], "commentCount": 0, "unread": false, "updated": "2026-09-30T00:00:00" },
+      { "id": 6, "projectId": 30, "due": null, "done": false, "assignees": [1], "commentCount": 3, "unread": true, "updated": "2026-10-06T07:00:00" },
+      { "id": 7, "projectId": 30, "due": null, "done": false, "assignees": [], "commentCount": 0, "unread": false, "updated": "2026-10-01T10:00:00" },
+      { "id": 8, "projectId": 20, "due": null, "done": true, "assignees": [1], "commentCount": 1, "unread": true, "updated": "2026-10-06T10:00:00" }
+    ],
+    "vectors": [
+      { "name": "assigned to me", "today": "2026-10-06", "filter": { "due_date_filter": "all", "assigned": "me" }, "expect": [1, 2] },
+      { "name": "assigned to me including done", "today": "2026-10-06", "filter": { "due_date_filter": "all", "assigned": "me", "include_done": true }, "expect": [1, 2, 8] },
+      { "name": "assigned to others", "today": "2026-10-06", "filter": { "due_date_filter": "all", "assigned": "others" }, "expect": [3] },
+      { "name": "assigned to nobody", "today": "2026-10-06", "filter": { "due_date_filter": "all", "assigned": "nobody" }, "expect": [4, 5] },
+      { "name": "unknown assigned value is no condition", "today": "2026-10-06", "filter": { "due_date_filter": "all", "assigned": "team" }, "expect": [1, 2, 3, 4, 5, 6, 7] },
+      { "name": "unread comments", "today": "2026-10-06", "filter": { "due_date_filter": "all", "comments": "unread" }, "expect": [3, 4] },
+      { "name": "any comments", "today": "2026-10-06", "filter": { "due_date_filter": "all", "comments": "any" }, "expect": [1, 3, 4] },
+      { "name": "unknown comments value is no condition", "today": "2026-10-06", "filter": { "due_date_filter": "all", "comments": "mentions" }, "expect": [1, 2, 3, 4, 5, 6, 7] },
+      { "name": "shared projects only", "today": "2026-10-06", "filter": { "due_date_filter": "all", "shared_only": true }, "expect": [1, 2, 3, 4, 5] },
+      { "name": "shared_only false is no condition", "today": "2026-10-06", "filter": { "due_date_filter": "all", "shared_only": false }, "expect": [1, 2, 3, 4, 5, 6, 7] },
+      { "name": "changed today", "today": "2026-10-06", "filter": { "due_date_filter": "all", "changed_within_days": 1 }, "expect": [1, 6] },
+      { "name": "changed in the last two days", "today": "2026-10-06", "filter": { "due_date_filter": "all", "changed_within_days": 2 }, "expect": [1, 2, 6] },
+      { "name": "changed in the last seven days", "today": "2026-10-06", "filter": { "due_date_filter": "all", "changed_within_days": 7 }, "expect": [1, 2, 3, 5, 6, 7] },
+      { "name": "changed_within_days 0 is no condition", "today": "2026-10-06", "filter": { "due_date_filter": "all", "changed_within_days": 0 }, "expect": [1, 2, 3, 4, 5, 6, 7] },
+      { "name": "changed today including done", "today": "2026-10-06", "filter": { "due_date_filter": "all", "changed_within_days": 1, "include_done": true }, "expect": [1, 6, 8] },
+      { "name": "changed yesterday seen the next day", "today": "2026-10-07", "filter": { "due_date_filter": "all", "changed_within_days": 2 }, "expect": [1, 6] },
+      { "name": "nobody assigned and changed this week", "today": "2026-10-06", "filter": { "due_date_filter": "all", "assigned": "nobody", "changed_within_days": 7 }, "expect": [5] },
+      { "name": "unread comments changed this week", "today": "2026-10-06", "filter": { "due_date_filter": "all", "comments": "unread", "changed_within_days": 7 }, "expect": [3] },
+      { "name": "signed out, assigned to me", "today": "2026-10-06", "signedOut": true, "filter": { "due_date_filter": "all", "assigned": "me" }, "expect": [] },
+      { "name": "signed out, assigned to others", "today": "2026-10-06", "signedOut": true, "filter": { "due_date_filter": "all", "assigned": "others" }, "expect": [] },
+      { "name": "signed out, assigned to nobody", "today": "2026-10-06", "signedOut": true, "filter": { "due_date_filter": "all", "assigned": "nobody" }, "expect": [4, 5] },
+      { "name": "assigned to me in project 20", "today": "2026-10-06", "filter": { "due_date_filter": "all", "assigned": "me", "project_ids": [20] }, "expect": [1, 2] },
+      { "name": "assigned to me in project 21 plus today from all projects", "today": "2026-10-06", "filter": { "due_date_filter": "all", "assigned": "me", "project_ids": [21], "include_today_all_projects": true }, "expect": [1] },
+      { "name": "assigned to me due today", "today": "2026-10-06", "filter": { "due_date_filter": "today", "assigned": "me" }, "expect": [1] }
+    ]
+  },
   "review": [
     { "name": "never reviewed", "today": "2026-10-06", "defaultCadence": 14, "meta": { "state": "never" }, "expect": { "isOverdue": true, "daysSince": null, "daysUntil": null, "next": null } },
     { "name": "excluded", "today": "2026-10-06", "defaultCadence": 14, "meta": { "state": "excluded", "lastReviewedAt": "2026-01-01" }, "expect": { "isOverdue": false, "daysSince": null, "daysUntil": null, "next": null } },
@@ -1373,7 +1414,205 @@
         "due": "2027-03-14T23:59:59",
         "dateOnly": true,
         "expect": "Tomorrow"
+      },
+      { "name": "comment.day, today, en-GB", "context": "comment.day", "locale": "en-GB", "hour12": false, "zone": "Pacific/Auckland", "now": "2026-10-07T09:30:00", "due": "2026-10-07T09:00:00", "dateOnly": false, "expect": "Today" },
+      { "name": "comment.day, a clock a little ahead, en-GB", "context": "comment.day", "locale": "en-GB", "hour12": false, "zone": "Pacific/Auckland", "now": "2026-10-07T09:30:00", "due": "2026-10-07T09:45:00", "dateOnly": false, "expect": "Today" },
+      { "name": "comment.day, yesterday, en-GB", "context": "comment.day", "locale": "en-GB", "hour12": false, "zone": "Pacific/Auckland", "now": "2026-10-07T09:30:00", "due": "2026-10-06T22:15:00", "dateOnly": false, "expect": "Yesterday" },
+      { "name": "comment.day, 2 days ago, en-GB", "context": "comment.day", "locale": "en-GB", "hour12": false, "zone": "Pacific/Auckland", "now": "2026-10-07T09:30:00", "due": "2026-10-05T10:00:00", "dateOnly": false, "expect": "Mon 5 Oct" },
+      { "name": "comment.day, 17 days ago, en-GB", "context": "comment.day", "locale": "en-GB", "hour12": false, "zone": "Pacific/Auckland", "now": "2026-10-07T09:30:00", "due": "2026-09-20T10:00:00", "dateOnly": false, "expect": "Sun 20 Sep" },
+      { "name": "comment.day, the day after a DST start, en-GB", "context": "comment.day", "locale": "en-GB", "hour12": false, "zone": "Pacific/Auckland", "now": "2026-09-28T09:00:00", "due": "2026-09-27T12:00:00", "dateOnly": false, "expect": "Yesterday" },
+      { "name": "comment.day, last year, en-GB", "context": "comment.day", "locale": "en-GB", "hour12": false, "zone": "Pacific/Auckland", "now": "2027-01-02T10:00:00", "due": "2026-12-29T10:00:00", "dateOnly": false, "expect": "Tue 29 Dec 2026" },
+      { "name": "comment.day, yesterday across the year, en-GB", "context": "comment.day", "locale": "en-GB", "hour12": false, "zone": "Pacific/Auckland", "now": "2027-01-02T10:00:00", "due": "2027-01-01T10:00:00", "dateOnly": false, "expect": "Yesterday" },
+      { "name": "comment.day, today, en-US", "context": "comment.day", "locale": "en-US", "hour12": true, "zone": "America/New_York", "now": "2026-10-07T09:30:00", "due": "2026-10-07T00:10:00", "dateOnly": false, "expect": "Today" },
+      { "name": "comment.day, yesterday, en-US", "context": "comment.day", "locale": "en-US", "hour12": true, "zone": "America/New_York", "now": "2026-10-07T09:30:00", "due": "2026-10-06T22:15:00", "dateOnly": false, "expect": "Yesterday" },
+      { "name": "comment.day, 2 days ago, en-US", "context": "comment.day", "locale": "en-US", "hour12": true, "zone": "America/New_York", "now": "2026-10-07T09:30:00", "due": "2026-10-05T10:00:00", "dateOnly": false, "expect": "Mon, Oct 5" },
+      { "name": "comment.day, 17 days ago, en-US", "context": "comment.day", "locale": "en-US", "hour12": true, "zone": "America/New_York", "now": "2026-10-07T09:30:00", "due": "2026-09-20T10:00:00", "dateOnly": false, "expect": "Sun, Sep 20" },
+      { "name": "comment.day, last year, en-US", "context": "comment.day", "locale": "en-US", "hour12": true, "zone": "America/New_York", "now": "2027-01-02T10:00:00", "due": "2026-12-29T10:00:00", "dateOnly": false, "expect": "Tue, Dec 29, 2026" },
+      { "name": "comment.day, DST end day, en-US", "context": "comment.day", "locale": "en-US", "hour12": true, "zone": "America/New_York", "now": "2026-11-01T23:45:00", "due": "2026-11-01T00:15:00", "dateOnly": false, "expect": "Today" }
+    ]
+  },
+  "collaboration": {
+    "about": "Vectors for docs/cross-app-semantics-v1.md section 9. People are { id, username, name } in the order the server returned them; me is the signed-in user id. Instants in edited are UTC.",
+    "shared": [
+      { "name": "only you", "me": 1, "members": [1], "expect": false },
+      { "name": "you and one more", "me": 1, "members": [1, 2], "expect": true },
+      { "name": "shared with you by the owner", "me": 2, "members": [1, 2], "expect": true },
+      { "name": "members not known yet", "me": 1, "members": [], "expect": false },
+      { "name": "someone else only", "me": 1, "members": [2], "expect": true }
+    ],
+    "memberPermission": {
+      "projects": [
+        { "id": 10, "parent": 0, "owner": 1 },
+        { "id": 11, "parent": 10, "owner": 1 },
+        { "id": 12, "parent": 11, "owner": 1 },
+        { "id": 20, "parent": 0, "owner": 2 }
+      ],
+      "shares": {
+        "10": [{ "user": 2, "permission": 0 }, { "user": 6, "permission": 0 }],
+        "11": [{ "user": 3, "permission": 1 }],
+        "20": [{ "user": 1, "permission": 1 }]
+      },
+      "teams": {
+        "10": [{ "permission": 1, "members": [2, 5] }],
+        "11": [{ "permission": 2, "members": [4] }]
+      },
+      "vectors": [
+        { "name": "the owner", "project": 10, "user": 1, "expect": 2 },
+        { "name": "the owner of a parent project", "project": 12, "user": 1, "expect": 2 },
+        { "name": "a direct share and a team, the highest wins", "project": 10, "user": 2, "expect": 1 },
+        { "name": "inherited from the parent", "project": 11, "user": 2, "expect": 1 },
+        { "name": "a share on the parent project", "project": 12, "user": 3, "expect": 1 },
+        { "name": "a team on a parent project", "project": 12, "user": 4, "expect": 2 },
+        { "name": "a read-only share inherited", "project": 11, "user": 6, "expect": 0 },
+        { "name": "a team member only", "project": 10, "user": 5, "expect": 1 },
+        { "name": "a share on a subproject does not reach the parent", "project": 10, "user": 3, "expect": null },
+        { "name": "a direct share on someone else's project", "project": 20, "user": 1, "expect": 1 },
+        { "name": "the owner of someone else's project", "project": 20, "user": 2, "expect": 2 },
+        { "name": "unknown", "project": 20, "user": 9, "expect": null }
+      ]
+    },
+    "names": [
+      {
+        "name": "only you",
+        "me": 1,
+        "people": [{ "id": 1, "username": "rendy", "name": "Rendy" }],
+        "expect": { "list": "You", "visibleTo": "Visible to you", "assigned": "Assigned to you", "chip": "Assigned: You" }
+      },
+      {
+        "name": "you come first",
+        "me": 1,
+        "people": [{ "id": 2, "username": "maya", "name": "Maya" }, { "id": 1, "username": "rendy", "name": "Rendy" }],
+        "expect": { "list": "You, Maya", "visibleTo": "Visible to you and Maya", "assigned": "Assigned to you, Maya", "chip": "Assigned: You, Maya" }
+      },
+      {
+        "name": "a user without a name shows the username",
+        "me": 1,
+        "people": [{ "id": 2, "username": "maya", "name": "Maya" }, { "id": 3, "username": "sam", "name": "" }, { "id": 1, "username": "rendy", "name": "Rendy" }],
+        "expect": { "list": "You, Maya, sam", "visibleTo": "Visible to you, Maya and sam", "assigned": "Assigned to you, Maya, sam", "chip": "Assigned: You, Maya, sam" }
+      },
+      {
+        "name": "a name is trimmed, and you are not among them",
+        "me": 1,
+        "people": [{ "id": 2, "username": "maya", "name": "  Maya Lee " }],
+        "expect": { "list": "Maya Lee", "visibleTo": "Visible to Maya Lee", "assigned": "Assigned to Maya Lee", "chip": "Assigned: Maya Lee" }
+      },
+      {
+        "name": "a blank name shows the username",
+        "me": 1,
+        "people": [{ "id": 3, "username": "sam", "name": "   " }, { "id": 2, "username": "maya", "name": "Maya" }],
+        "expect": { "list": "sam, Maya", "visibleTo": "Visible to sam and Maya", "assigned": "Assigned to sam, Maya", "chip": "Assigned: sam, Maya" }
+      },
+      {
+        "name": "four people",
+        "me": 1,
+        "people": [{ "id": 1, "username": "rendy", "name": "Rendy" }, { "id": 2, "username": "maya", "name": "Maya" }, { "id": 3, "username": "sam", "name": "Sam" }, { "id": 4, "username": "bo", "name": "Bo" }],
+        "expect": { "list": "You, Maya, Sam, Bo", "visibleTo": "Visible to you, Maya, Sam and Bo", "assigned": "Assigned to you, Maya, Sam, Bo", "chip": "Assigned: You, Maya, Sam, Bo" }
+      },
+      {
+        "name": "nobody",
+        "me": 1,
+        "people": [],
+        "expect": { "list": "", "visibleTo": "", "assigned": "", "chip": "Assign" }
       }
+    ],
+    "countLabel": [
+      { "count": 1, "unread": false, "expect": "1 comment" },
+      { "count": 4, "unread": false, "expect": "4 comments" },
+      { "count": 1, "unread": true, "expect": "1 comment, new" },
+      { "count": 2, "unread": true, "expect": "2 comments, new" }
+    ],
+    "encode": {
+      "members": [
+        { "id": 1, "username": "rendy", "name": "Rendy" },
+        { "id": 2, "username": "maya", "name": "Maya" },
+        { "id": 3, "username": "sam.k", "name": "Sam" },
+        { "id": 4, "username": "sam", "name": "Sam B" },
+        { "id": 5, "username": "q", "name": "Q \"the\" <x> & co" }
+      ],
+      "vectors": [
+        { "name": "plain text", "text": "Hello", "expect": "<p>Hello</p>" },
+        { "name": "trimmed, a line break", "text": "  Hello\nthere  ", "expect": "<p>Hello<br>there</p>" },
+        { "name": "every line break form", "text": "a\r\nb\rc", "expect": "<p>a<br>b<br>c</p>" },
+        { "name": "an empty line is kept", "text": "line1\n\nline3", "expect": "<p>line1<br><br>line3</p>" },
+        { "name": "empty", "text": "", "expect": "" },
+        { "name": "only whitespace", "text": "   \n ", "expect": "" },
+        { "name": "escaped", "text": "Fish & chips <3 \"ok\" 'x'", "expect": "<p>Fish &amp; chips &lt;3 &quot;ok&quot; 'x'</p>" },
+        { "name": "a mention at the start", "text": "@maya can you?", "expect": "<p><mention-user data-id=\"maya\" data-label=\"Maya\">@maya</mention-user> can you?</p>" },
+        { "name": "a mention in another case, before a full stop", "text": "Ask @Maya.", "expect": "<p>Ask <mention-user data-id=\"maya\" data-label=\"Maya\">@maya</mention-user>.</p>" },
+        { "name": "an email address is not a mention", "text": "mail me@maya.com", "expect": "<p>mail me@maya.com</p>" },
+        { "name": "a longer word is not a mention", "text": "@mayan hi", "expect": "<p>@mayan hi</p>" },
+        { "name": "the longest username wins", "text": "@sam.k and @sam", "expect": "<p><mention-user data-id=\"sam.k\" data-label=\"Sam\">@sam.k</mention-user> and <mention-user data-id=\"sam\" data-label=\"Sam B\">@sam</mention-user></p>" },
+        { "name": "a longer username that does not end there gives way", "text": "@sam.kx", "expect": "<p><mention-user data-id=\"sam\" data-label=\"Sam B\">@sam</mention-user>.kx</p>" },
+        { "name": "after a bracket", "text": "(@maya)", "expect": "<p>(<mention-user data-id=\"maya\" data-label=\"Maya\">@maya</mention-user>)</p>" },
+        { "name": "after another at sign", "text": "@@maya", "expect": "<p>@<mention-user data-id=\"maya\" data-label=\"Maya\">@maya</mention-user></p>" },
+        { "name": "after an underscore", "text": "_@maya", "expect": "<p>_@maya</p>" },
+        { "name": "after a letter outside ASCII", "text": "é@maya", "expect": "<p>é@maya</p>" },
+        { "name": "on its own line", "text": "Hi\n@rendy", "expect": "<p>Hi<br><mention-user data-id=\"rendy\" data-label=\"Rendy\">@rendy</mention-user></p>" },
+        { "name": "a label is escaped", "text": "@q", "expect": "<p><mention-user data-id=\"q\" data-label=\"Q &quot;the&quot; &lt;x&gt; &amp; co\">@q</mention-user></p>" },
+        { "name": "an unknown name stays text", "text": "@bob hi", "expect": "<p>@bob hi</p>" }
+      ]
+    },
+    "decode": {
+      "members": [
+        { "id": 1, "username": "rendy", "name": "Rendy" },
+        { "id": 2, "username": "maya", "name": "Maya" }
+      ],
+      "vectors": [
+        { "name": "a paragraph", "html": "<p>Hello</p>", "segments": [{ "text": "Hello" }], "plain": true, "editText": "Hello" },
+        { "name": "a line break", "html": "<p>a<br>b</p>", "segments": [{ "text": "a\nb" }], "plain": true, "editText": "a\nb" },
+        { "name": "a mention Vicu wrote", "html": "<p><mention-user data-id=\"maya\" data-label=\"Maya\">@maya</mention-user> can you?</p>", "segments": [{ "mention": "maya", "label": "Maya" }, { "text": " can you?" }], "plain": true, "editText": "@maya can you?" },
+        { "name": "an empty mention from the web editor takes the member's name", "html": "<p>Hi <mention-user data-id=\"maya\" data-label=\"Maya Old\" data-mention-suggestion-char=\"@\"></mention-user></p>", "segments": [{ "text": "Hi " }, { "mention": "maya", "label": "Maya" }], "plain": true, "editText": "Hi @maya" },
+        { "name": "an unknown user with a label", "html": "<p><mention-user data-id=\"bob\" data-label=\"Bobby\">@bob</mention-user></p>", "segments": [{ "mention": "bob", "label": "Bobby" }], "plain": true, "editText": "@bob" },
+        { "name": "an unknown user without a label", "html": "<p><mention-user data-id=\"bob\">@bob</mention-user></p>", "segments": [{ "mention": "bob", "label": "bob" }], "plain": true, "editText": "@bob" },
+        { "name": "an unknown user with nothing else", "html": "<p><mention-user data-id=\"zed\"></mention-user></p>", "segments": [{ "mention": "zed", "label": "zed" }], "plain": true, "editText": "@zed" },
+        { "name": "a mention element without an id is text", "html": "<p><mention-user>@x</mention-user></p>", "segments": [{ "text": "@x" }], "plain": true, "editText": "@x" },
+        { "name": "paragraphs", "html": "<p>one</p><p>two</p>", "segments": [{ "text": "one\ntwo" }], "plain": true, "editText": "one\ntwo" },
+        { "name": "indentation between blocks is dropped", "html": "<p>a</p>\n  <p>b</p>", "segments": [{ "text": "a\nb" }], "plain": true, "editText": "a\nb" },
+        { "name": "rich text from the web editor", "html": "<p><strong>Bold</strong> and <em>it</em></p><ul><li><p>a</p></li><li><p>b</p></li></ul>", "segments": [{ "text": "Bold and it\na\nb" }], "plain": false, "editText": null },
+        { "name": "character references", "html": "<p>Fish &amp; chips &lt;3 &quot;ok&quot; &#39;x&#39; &apos;y&apos; a&nbsp;b &#8364; &#x20AC; &copy;</p>", "segments": [{ "text": "Fish & chips <3 \"ok\" 'x' 'y' a b € € &copy;" }], "plain": true, "editText": "Fish & chips <3 \"ok\" 'x' 'y' a b € € &copy;" },
+        { "name": "script and style are dropped", "html": "<p>a</p><script>alert(1)</script><style>p{}</style><p>b</p>", "segments": [{ "text": "a\nb" }], "plain": false, "editText": null },
+        { "name": "a line break character in text is a space", "html": "<p>line one\nline two</p>", "segments": [{ "text": "line one line two" }], "plain": true, "editText": "line one line two" },
+        { "name": "space and empty lines at the ends", "html": "<p></p><p>  x  </p><p><br></p>", "segments": [{ "text": "x" }], "plain": true, "editText": "x" },
+        { "name": "attributes in single quotes", "html": "<p><mention-user data-label='A &amp; B' data-id='ab'></mention-user></p>", "segments": [{ "mention": "ab", "label": "A & B" }], "plain": true, "editText": "@ab" },
+        { "name": "an HTML comment", "html": "<p>a<!-- hidden -->b</p>", "segments": [{ "text": "ab" }], "plain": true, "editText": "ab" },
+        { "name": "upper-case tags and a self-closing break", "html": "<P>Hi<BR/>there</P>", "segments": [{ "text": "Hi\nthere" }], "plain": true, "editText": "Hi\nthere" },
+        { "name": "inline elements merge into one text", "html": "a<b>b</b>c", "segments": [{ "text": "abc" }], "plain": false, "editText": null },
+        { "name": "plain @ text stays text", "html": "<p>@maya hello</p>", "segments": [{ "text": "@maya hello" }], "plain": true, "editText": "@maya hello" },
+        { "name": "a link keeps its text", "html": "<p>See <a href=\"https://example.com\">the site</a></p>", "segments": [{ "text": "See the site" }], "plain": false, "editText": null },
+        { "name": "a lone angle bracket is text", "html": "<p>3 < 4</p>", "segments": [{ "text": "3 < 4" }], "plain": true, "editText": "3 < 4" },
+        { "name": "empty", "html": "", "segments": [], "plain": true, "editText": "" }
+      ]
+    },
+    "mention": {
+      "me": 1,
+      "members": [
+        { "id": 1, "username": "rendy", "name": "Rendy" },
+        { "id": 2, "username": "maya", "name": "Maya Lee" },
+        { "id": 3, "username": "sam", "name": "Sam" },
+        { "id": 4, "username": "mark", "name": "Mark" }
+      ],
+      "vectors": [
+        { "name": "an at sign alone lists everyone but you", "text": "@", "caret": 1, "query": "", "suggestions": ["maya", "sam", "mark"] },
+        { "name": "a username prefix", "text": "Hi @ma", "caret": 6, "query": "ma", "suggestions": ["maya", "mark"] },
+        { "name": "a word of the name", "text": "Hi @le", "caret": 6, "query": "le", "suggestions": ["maya"] },
+        { "name": "the caret in the middle", "text": "Hi @ma there", "caret": 6, "query": "ma", "suggestions": ["maya", "mark"], "pick": "mark", "pickedText": "Hi @mark  there", "pickedCaret": 9 },
+        { "name": "inside a word is not a mention", "text": "email@ma", "caret": 8, "query": null, "suggestions": [] },
+        { "name": "a space after the query ends it", "text": "@ma x", "caret": 5, "query": null, "suggestions": [] },
+        { "name": "you are left out", "text": "@re", "caret": 3, "query": "re", "suggestions": [] },
+        { "name": "pick at the end", "text": "Hi @ma", "caret": 6, "query": "ma", "suggestions": ["maya", "mark"], "pick": "maya", "pickedText": "Hi @maya ", "pickedCaret": 9 },
+        { "name": "after a line break", "text": "line\n@s", "caret": 7, "query": "s", "suggestions": ["sam"] },
+        { "name": "case does not matter", "text": "@MA", "caret": 3, "query": "MA", "suggestions": ["maya", "mark"] },
+        { "name": "an at sign after a letter", "text": "a @b@c", "caret": 6, "query": null, "suggestions": [] },
+        { "name": "nothing matches", "text": "@zz", "caret": 3, "query": "zz", "suggestions": [] }
+      ]
+    },
+    "edited": [
+      { "name": "same second", "created": "2026-10-10T19:15:18Z", "updated": "2026-10-10T19:15:18Z", "expect": false },
+      { "name": "stamped on create a few microseconds apart", "created": "2026-10-10T19:04:53.265509841Z", "updated": "2026-10-10T19:04:53.265512082Z", "expect": false },
+      { "name": "under a second", "created": "2026-10-10T19:15:18Z", "updated": "2026-10-10T19:15:18.999Z", "expect": false },
+      { "name": "one second", "created": "2026-10-10T19:15:18Z", "updated": "2026-10-10T19:15:19Z", "expect": true },
+      { "name": "later", "created": "2026-10-10T19:15:18Z", "updated": "2026-10-10T19:15:20Z", "expect": true },
+      { "name": "the null date", "created": "2026-10-10T19:15:18Z", "updated": "0001-01-01T00:00:00Z", "expect": false }
     ]
   }
 }

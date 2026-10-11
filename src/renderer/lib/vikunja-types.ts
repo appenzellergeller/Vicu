@@ -48,6 +48,21 @@ export interface Task {
   repeat_after: number
   repeat_mode: number // 0=default, 1=monthly, 2=from current date
   hex_color: string
+  /** Who the task is assigned to. Read only: changed through the assignee endpoints, never a patch. */
+  assignees?: PersonRef[] | null
+  /** Only with the collaboration expand (cross-app semantics 9.4); absent means 0. */
+  comment_count?: number
+  /** Only with the collaboration expand; absent means false. */
+  is_unread?: boolean
+  /** Your subscription to the task; only on a single-task read (GET /tasks/{id}). */
+  subscription?: { id: number; entity?: string | number; entity_id?: number } | null
+}
+
+/** A person as tasks, comments and member lists carry them. */
+export interface PersonRef {
+  id: number
+  username: string
+  name?: string | null
 }
 
 export interface Project {
@@ -60,6 +75,45 @@ export interface Project {
   position: number
   created: string
   updated: string
+  owner?: PersonRef | null
+  /** What you may do with it: 0 read only, 1 read and write, 2 admin (GET /projects?expand=permissions). */
+  max_permission?: number
+}
+
+/** A comment as the thread shows it: the server's fields, plus `pending` for a change still in the offline queue. */
+export interface TaskComment {
+  id: number
+  /** HTML (docs/cross-app-semantics-v1.md section 9.5). */
+  comment: string
+  author: PersonRef | null
+  created: string
+  updated: string
+  pending?: boolean
+}
+
+/** One page of a thread, newest first as the server sends it. */
+export interface TaskCommentPage {
+  items: TaskComment[]
+  page: number
+  totalPages: number
+}
+
+/** A direct share of a project (GET /projects/{id}/users). */
+export interface ProjectUserShare extends PersonRef {
+  permission: number
+}
+
+/** A team share of a project (GET /projects/{id}/teams). */
+export interface ProjectTeamShare {
+  id: number
+  name: string
+  permission: number
+  members?: PersonRef[] | null
+}
+
+export interface ProjectShares {
+  users: ProjectUserShare[]
+  teams: ProjectTeamShare[]
 }
 
 export interface Label {
@@ -142,6 +196,11 @@ export interface TaskQueryParams {
    * built in the main process from the local-day boundary at request time.
    */
   due_window?: DueWindow
+  /**
+   * Vicu option, never sent to the server: also ask for `comment_count` and `is_unread`. Added by
+   * `lib/api.ts` while at least one project is shared (cross-app semantics 9.4).
+   */
+  collab_signals?: boolean
 }
 
 export type ApiResult<T> =

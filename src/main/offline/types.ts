@@ -82,6 +82,53 @@ export interface UploadAttachmentAction extends ActionBase {
   uploaded?: boolean
 }
 
+/** Assign a user to a task (cross-app semantics 9.6). Never a field of a task patch. */
+export interface AddAssigneeAction extends ActionBase {
+  type: 'add-assignee'
+  taskId: number
+  userId: number
+  /** For the summary line only. */
+  username?: string
+}
+
+export interface RemoveAssigneeAction extends ActionBase {
+  type: 'remove-assignee'
+  taskId: number
+  userId: number
+  username?: string
+}
+
+/** A comment written while the server could not be reached. */
+export interface CreateCommentAction extends ActionBase {
+  type: 'create-comment'
+  taskId: number
+  /** Negative; what queued edits and deletes of this comment use until the create replays. */
+  tempCommentId: number
+  /** The comment HTML exactly as it will be sent (section 9.5). */
+  comment: string
+  /**
+   * A replay sent this create and got a timeout, a reset or a 500: the server may have stored it.
+   * The next attempt looks for the comment before posting again, so a retry cannot duplicate it.
+   */
+  maybeSent?: boolean
+}
+
+export interface UpdateCommentAction extends ActionBase {
+  type: 'update-comment'
+  taskId: number
+  /** A real comment id, or the temp id of a create that was already being sent. */
+  commentId: number
+  comment: string
+}
+
+export interface DeleteCommentAction extends ActionBase {
+  type: 'delete-comment'
+  taskId: number
+  commentId: number
+}
+
+export type CommentAction = CreateCommentAction | UpdateCommentAction | DeleteCommentAction
+
 export type QueuedAction =
   | CreateAction
   | UpdateAction
@@ -89,6 +136,11 @@ export type QueuedAction =
   | AddLabelAction
   | RemoveLabelAction
   | UploadAttachmentAction
+  | AddAssigneeAction
+  | RemoveAssigneeAction
+  | CreateCommentAction
+  | UpdateCommentAction
+  | DeleteCommentAction
 
 export type DependentAction = Exclude<QueuedAction, CreateAction>
 

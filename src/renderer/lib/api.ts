@@ -19,8 +19,13 @@ import type {
   PasswordLoginResult,
   VikunjaUser,
   AuthCheckResult,
+  PersonRef,
+  ProjectShares,
+  TaskComment,
+  TaskCommentPage,
 } from './vikunja-types'
 import type { TaskPatch } from './merge-patches'
+import { withCollabSignals } from './collab-signals'
 import { announceAccountChanged } from './account-events'
 import type {
   OfflineCreateInput,
@@ -31,6 +36,7 @@ import type {
   OfflineQueueResult,
   OfflineQueueSnapshot,
   OfflineReplayEvent,
+  QueuedCommentReply,
   QueuedWriteReply,
   TaskWriteOptions,
 } from '../../shared/offline-queue-types'
@@ -53,7 +59,7 @@ function queueOptions(title?: string): TaskWriteOptions {
 
 export const api = {
   fetchTasks: (params: TaskQueryParams) =>
-    window.api.fetchTasks(params) as Promise<ApiResult<Task[]>>,
+    window.api.fetchTasks(withCollabSignals(params)) as Promise<ApiResult<Task[]>>,
 
   fetchRoutineCarriers: () =>
     window.api.fetchRoutineCarriers() as Promise<ApiResult<Task[]>>,
@@ -90,7 +96,57 @@ export const api = {
     window.api.fetchProjectViews(projectId) as Promise<ApiResult<ProjectView[]>>,
 
   fetchViewTasks: (projectId: number, viewId: number, params: TaskQueryParams) =>
-    window.api.fetchViewTasks(projectId, viewId, params) as Promise<ApiResult<Task[]>>,
+    window.api.fetchViewTasks(projectId, viewId, withCollabSignals(params)) as Promise<ApiResult<Task[]>>,
+
+  // Collaboration (docs/cross-app-semantics-v1.md section 9)
+  searchProjectUsers: (projectId: number) =>
+    window.api.searchProjectUsers(projectId) as Promise<ApiResult<PersonRef[]>>,
+
+  fetchProjectShares: (projectId: number) =>
+    window.api.fetchProjectShares(projectId) as Promise<ApiResult<ProjectShares>>,
+
+  searchUsers: (query: string) =>
+    window.api.searchUsers(query) as Promise<ApiResult<PersonRef[]>>,
+
+  shareProject: (projectId: number, username: string, permission: number) =>
+    window.api.shareProject(projectId, username, permission) as Promise<ApiResult<unknown>>,
+
+  updateProjectShare: (projectId: number, username: string, permission: number) =>
+    window.api.updateProjectShare(projectId, username, permission) as Promise<ApiResult<unknown>>,
+
+  removeProjectShare: (projectId: number, username: string) =>
+    window.api.removeProjectShare(projectId, username) as Promise<ApiResult<void>>,
+
+  fetchAvatar: (username: string, size: number) =>
+    window.api.fetchAvatar(username, size) as Promise<ApiResult<string>>,
+
+  addTaskAssigneeOrQueue: (taskId: number, user: PersonRef, taskTitle?: string) =>
+    window.api.addTaskAssignee(taskId, user.id, { ...queueOptions(taskTitle), username: user.username }) as Promise<
+      ApiResult<unknown> | QueuedWriteReply
+    >,
+
+  removeTaskAssigneeOrQueue: (taskId: number, user: PersonRef, taskTitle?: string) =>
+    window.api.removeTaskAssignee(taskId, user.id, { ...queueOptions(taskTitle), username: user.username }) as Promise<
+      ApiResult<void> | QueuedWriteReply
+    >,
+
+  fetchTaskComments: (taskId: number, page: number) =>
+    window.api.fetchTaskComments(taskId, page) as Promise<ApiResult<TaskCommentPage>>,
+
+  createTaskCommentOrQueue: (taskId: number, html: string, taskTitle?: string) =>
+    window.api.createTaskComment(taskId, html, queueOptions(taskTitle)) as Promise<ApiResult<TaskComment> | QueuedCommentReply>,
+
+  updateTaskCommentOrQueue: (taskId: number, commentId: number, html: string, taskTitle?: string) =>
+    window.api.updateTaskComment(taskId, commentId, html, queueOptions(taskTitle)) as Promise<ApiResult<TaskComment> | QueuedWriteReply>,
+
+  deleteTaskCommentOrQueue: (taskId: number, commentId: number, taskTitle?: string) =>
+    window.api.deleteTaskComment(taskId, commentId, queueOptions(taskTitle)) as Promise<ApiResult<void> | QueuedWriteReply>,
+
+  markTaskRead: (taskId: number) =>
+    window.api.markTaskRead(taskId) as Promise<ApiResult<unknown>>,
+
+  setTaskSubscription: (taskId: number, subscribed: boolean) =>
+    window.api.setTaskSubscription(taskId, subscribed) as Promise<ApiResult<unknown>>,
 
   updateTaskPosition: (taskId: number, viewId: number, position: number) =>
     window.api.updateTaskPosition(taskId, viewId, position) as Promise<ApiResult<unknown>>,

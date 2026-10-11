@@ -1,5 +1,5 @@
 import { Fragment, useRef, type ReactNode, type RefObject } from 'react'
-import { Calendar, Bell, Repeat, Paperclip, ListChecks, FolderOpen, MoreHorizontal, Info, Trash2, Plus } from 'lucide-react'
+import { Calendar, Bell, Repeat, Paperclip, ListChecks, FolderOpen, MoreHorizontal, Info, Trash2, Plus, MessageSquare } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { isNullDate } from '@/lib/date-utils'
 import { labelChipSolidStyle } from '@/lib/label-style'
@@ -10,7 +10,10 @@ import { useDateFormat } from '@/hooks/use-date-format'
 import { subtaskProgress } from '@/lib/task-hierarchy'
 import { useIsDark } from '@/hooks/use-is-dark'
 import { useProjects } from '@/hooks/use-projects'
-import type { Task, TaskReminder } from '@/lib/vikunja-types'
+import { assignChipLabel, nameList, orderPeople } from '@/lib/collaboration'
+import type { ProjectAccess } from '@/hooks/use-project-access'
+import { commentsButtonId } from '@/stores/comments-pane-store'
+import type { PersonRef, Task, TaskReminder } from '@/lib/vikunja-types'
 import { priorityMark } from '../../../shared/priority-mark-svg'
 import { PriorityMark } from '../shared/PriorityMark'
 import { Popover } from '../overlay/Popover'
@@ -24,6 +27,8 @@ import { RecurrencePickerPopover } from './RecurrencePickerPopover'
 import { AttachmentPickerPopover } from './AttachmentPickerPopover'
 import { ProjectPickerPopover } from './ProjectPickerPopover'
 import { InfoPopover } from './InfoPopover'
+import { AssignPopover } from './AssignPopover'
+import { AvatarStack } from '../shared/Avatar'
 
 /** The one editor of the card that is open, if any. */
 export type CardPopover =
@@ -35,6 +40,7 @@ export type CardPopover =
   | 'repeat'
   | 'attachment'
   | 'project'
+  | 'assign'
   | 'more'
   | 'info'
   | null
@@ -56,6 +62,16 @@ interface TaskCardBarProps {
   onReminderChange: (reminders: TaskReminder[]) => void
   onProjectChange: (projectId: number) => void
   onDelete: () => void
+  /** Collaboration on the task's project; Assign and Comments only show while it is shared. */
+  collab?: CardCollab
+}
+
+export interface CardCollab {
+  access: ProjectAccess
+  me: PersonRef | null
+  /** The comments pane is showing this task's thread. */
+  commentsOpen: boolean
+  onToggleComments: () => void
 }
 
 const BUTTON = 'inline-flex min-h-7 shrink-0 items-center gap-1 rounded-control px-2 text-meta transition-colors duration-fade-fast'
@@ -118,10 +134,11 @@ function PropertyButton({ prop, name, value, unsetName, tip, shortcut, isSet, op
 }
 
 /**
- * The properties of an open card, in the order of the Android editor: date, priority, labels,
- * checklist, reminder, repeat, project, attachments. A set property is a chip that opens its
- * editor; an unset one is a quiet "+" button that does the same. Task info and Delete live under
- * More. Each button has a tooltip (400 ms, with its shortcut where there is one).
+ * The properties of an open card, in the order of the Android editor (design system 4.1): date,
+ * priority, labels, checklist, reminder, repeat, project, assign, attachments, then comments and
+ * More on the right. Assign and Comments exist only on a shared project. A set property is a chip
+ * that opens its editor; an unset one is a quiet "+" button that does the same. Task info and
+ * Delete live under More. Each button has a tooltip (400 ms, with its shortcut where there is one).
  */
 export function TaskCardBar({
   task,
@@ -136,6 +153,7 @@ export function TaskCardBar({
   onReminderChange,
   onProjectChange,
   onDelete,
+  collab,
 }: TaskCardBarProps) {
   const isDark = useIsDark()
   const dateFormat = useDateFormat()
@@ -149,6 +167,7 @@ export function TaskCardBar({
   const projectRef = useRef<HTMLButtonElement>(null)
   const attachmentRef = useRef<HTMLButtonElement>(null)
   const moreRef = useRef<HTMLButtonElement>(null)
+  const assignRef = useRef<HTMLButtonElement>(null)
 
   const labels = task.labels ?? []
   const hasDate = !isNullDate(task.due_date)
@@ -162,6 +181,12 @@ export function TaskCardBar({
   const repeatText = formatRecurrenceLabel(task.repeat_after ?? 0, task.repeat_mode ?? 0)
   const reminderText = reminderCount === 1 ? '1 reminder' : `${reminderCount} reminders`
   const is = (p: OpenPopover) => active === p
+  const shared = !!collab?.access.shared
+  const me = collab?.me ?? null
+  const assignees = shared ? orderPeople(task.assignees ?? [], me?.id) : []
+  // Read-only members see who is assigned but cannot change it (section 9.2).
+  const canAssign = shared && collab!.access.permission >= 1
+  const commentCount = task.comment_count ?? 0
 
   return (
     <div className="col-start-2 flex flex-wrap items-center gap-1 pb-3 pt-2">
@@ -254,6 +279,35 @@ export function TaskCardBar({
       </PropertyButton>
       {is('project') && <ProjectPickerPopover anchorRef={projectRef} currentProjectId={task.project_id} onSelect={onProjectChange} onClose={onClose} />}
 
+      {canAssign && (
+        <PropertyButton
+          prop="assign"
+          name="Assigned"
+          unsetName="Assign"
+          value={nameList(assignees, me?.id)}
+          tip={assignees.length > 0 ? assignChipLabel(assignees, me?.id) : 'Assign'}
+          isSet={assignees.length > 0}
+          open={is('assign')}
+          haspopup="listbox"
+          buttonRef={assignRef}
+          onClick={() => onToggle('assign')}
+          unsetLabel="Assign"
+          className={assignees.length > 0 ? 'gap-1.5 pl-1' : undefined}
+          icon={<AvatarStack people={assignees} size={16} max={3} surface="card" />}
+        >
+          <span className="max-w-[12rem] truncate">{nameList(assignees, me?.id)}</span>
+        </PropertyButton>
+      )}
+      {shared && !canAssign && assignees.length > 0 && (
+        <span data-prop="assign" aria-label={assignChipLabel(assignees, me?.id)} role="img" className={cn(BUTTON, 'gap-1.5 pl-1 border border-[var(--border-color)] text-text')}>
+          <AvatarStack people={assignees} size={16} max={3} surface="card" />
+          <span className="max-w-[12rem] truncate">{nameList(assignees, me?.id)}</span>
+        </span>
+      )}
+      {is('assign') && collab && (
+        <AssignPopover anchorRef={assignRef} task={task} members={collab.access.members} me={me} projectTitle={project?.title ?? 'this project'} onClose={onClose} />
+      )}
+
       <PropertyButton
         prop="attachments"
         name="Attachments"
@@ -271,7 +325,8 @@ export function TaskCardBar({
       </PropertyButton>
       {is('attachment') && <AttachmentPickerPopover anchorRef={attachmentRef} invokedBy={attachmentInvokers} taskId={task.id} onClose={onClose} />}
 
-      <div className="ml-auto">
+      <div className="ml-auto flex items-center gap-1">
+        {shared && collab && <CommentsButton taskId={task.id} count={commentCount} unread={!!task.is_unread} open={collab.commentsOpen} onClick={collab.onToggleComments} />}
         <PropertyButton prop="more" name="More" isSet={false} open={is('more') || is('info')} haspopup="menu" buttonRef={moreRef} onClick={() => onToggle('more')} iconOnly icon={<MoreHorizontal className="h-4 w-4" aria-hidden="true" />} />
       </div>
       {is('more') && (
@@ -286,6 +341,37 @@ export function TaskCardBar({
       )}
       {is('info') && <InfoPopover anchorRef={moreRef} task={task} onClose={onClose} />}
     </div>
+  )
+}
+
+/**
+ * Shows and hides the comments pane beside the card (collaboration D3). Icon only without comments;
+ * with them, a chip with the count; while the pane is open it takes the open style. The unread dot
+ * shows until the pane is open.
+ */
+function CommentsButton({ taskId, count, unread, open, onClick }: { taskId: number; count: number; unread: boolean; open: boolean; onClick: () => void }) {
+  const label = count === 0 ? 'Comments' : `Comments, ${count}${unread ? ', new' : ''}`
+  return (
+    <Tooltip label="Comments" shortcut="Mod+Shift+C">
+      <button
+        id={commentsButtonId(taskId)}
+        type="button"
+        data-prop="comments"
+        aria-label={label}
+        aria-expanded={open}
+        aria-controls={open ? 'comments-pane' : undefined}
+        onClick={onClick}
+        className={cn(BUTTON, count === 0 && 'w-7 justify-center px-0', open ? OPEN : count > 0 ? SET : UNSET)}
+      >
+        <span className="relative inline-flex">
+          <MessageSquare className="h-3.5 w-3.5" aria-hidden="true" />
+          {unread && !open && (
+            <span aria-hidden="true" className="vicu-unread-dot absolute -right-[3px] -top-[2px] h-1.5 w-1.5 rounded-full bg-accent-blue" style={{ boxShadow: '0 0 0 1.5px var(--bg-card)' }} />
+          )}
+        </span>
+        {count > 0 && <span className={cn(unread && !open && 'font-semibold')}>{count}</span>}
+      </button>
+    </Tooltip>
   )
 }
 

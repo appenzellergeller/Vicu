@@ -8,7 +8,7 @@ Test vectors live in `test-fixtures/` in both repos and must stay byte-identical
 
 | Fixture | Covers |
 |---|---|
-| `cross-app-semantics-v1.json` | due-date rules, smart lists, weeks, custom-list windows, review math, completion hold, date display |
+| `cross-app-semantics-v1.json` | due-date rules, smart lists, weeks, custom-list windows, review math, completion hold, date display, collaboration |
 | `nlp-corpus-v1.json` | quick-add parsing |
 | `routine-archive-v1.json` | routine merge, pruning and archive rules |
 | `design-tokens-v1.json` | colour roles, type, radii and motion (see `design-system-v1.md`) |
@@ -80,11 +80,19 @@ Reminders relative to the due date ("1 hour before") are computed from the store
 ## 3. Custom lists
 
 Custom lists sync through the `vicu-custom-lists:v1` carrier. The list `filter` object gains
-one field:
+these fields:
 
 | Field | Type | Meaning |
 |---|---|---|
 | `include_overdue` | boolean, optional | Whether date windows also include overdue tasks. Absent means `true`. |
+| `assigned` | string, optional | `me`, `others` or `nobody` (section 3.3). Absent means no condition. |
+| `comments` | string, optional | `unread` or `any` (section 3.3). Absent means no condition. |
+| `shared_only` | boolean, optional | Only tasks of shared projects (section 3.3). Absent means `false`. |
+| `changed_within_days` | whole number, optional | Only tasks changed on the last N local days, today included (section 3.3). Absent means no condition. |
+
+Apps write `assigned`, `comments`, `shared_only` and `changed_within_days` only when they are
+set. A string value of `assigned` or `comments` that this version does not know is kept as it
+is and is no condition, like a `due_date_filter` from a newer app.
 
 Both apps' protocol normalizers must **preserve unknown fields** in list values and filters
 from now on, so a future field added by one app survives a round trip through the other.
@@ -121,7 +129,40 @@ with a local due date before T are included too. `overdue`, `has_due_date`, `no_
 - Evaluate all conditions on the full task set **before** hiding nested subtasks. A subtask
   that matches is shown even when its parent doesn't. The same applies to Tag views.
 
-### 3.3 Edge references
+### 3.3 Collaboration and activity
+
+These conditions gather the tasks people share (section 9) and the tasks that moved. Next to
+today, the evaluator takes who you are and which projects are shared.
+
+- A project is **shared** as in section 9.1: its members include someone besides you; one whose
+  members are not known yet is not shared. `assigned` and `comments` only match tasks of shared
+  projects, the tasks whose rows show assignees and comments; a task of a project nobody else can
+  see never matches them, whatever the server holds for it.
+- `shared_only: true` keeps tasks of shared projects.
+- `assigned`: `me` keeps tasks you are assigned to (alone or with others); `others` keeps tasks
+  with at least one assignee where you are not one of them; `nobody` keeps tasks without
+  assignees. While you are not known (signed out), `me` and `others` match nothing.
+- `comments`: `unread` keeps tasks whose `is_unread` is true (a comment or a mention you have not
+  read, section 9.4); `any` keeps tasks with a `comment_count` above 0. A task you read in an
+  `unread` list keeps its place there until you leave the list, so opening the thread does not
+  pull the row away; the next visit no longer shows it.
+- `changed_within_days: N` (a whole number, 1 or more) keeps tasks whose `updated` is at or
+  after the start of the local day N - 1 days before today: 1 is changed today, 7 the last seven
+  days (a time after now, from a server clock ahead of this device, counts too). The server moves `updated` when a task is edited, completed or reopened, commented on,
+  assigned or unassigned, or labelled; marking its comments read does not (checked on 2.4.0). It
+  counts your own changes too: the API does not say who changed a task. Any other value (0, a
+  negative or a fraction, not a number) is no condition. The server clause
+  `updated >= '<start of that local day>'` is exact.
+- `include_today_all_projects` only widens the project condition; these conditions still apply
+  to every task.
+- Apps ask the server for `comment_count` and `is_unread` only while a project is shared
+  (section 9.4), so these conditions cost nothing for a user who shares nothing.
+
+Vectors: the `customListActivity` block of the fixture (`me`, the shared project ids, its own
+tasks with `assignees`, `commentCount`, `unread` and `updated` as local wall-clock times; a
+vector with `signedOut: true` runs without `me`).
+
+### 3.4 Edge references
 
 | Today | `this_week` ends | `this_month` ends |
 |---|---|---|
@@ -400,9 +441,11 @@ the time ("Fri, 15:00", "Oct 18, 3:00 PM"). A date-only value has no time part.
 | `header.full` | "Wednesday 7 October" or "Wednesday, October 7", with the year when it differs. |
 | `logbook.group` | The group of a completion time. 0 or later: "Today". -1: "Yesterday". -6 to -2: the weekday date ("Mon 5 Oct"). -7 or older: the month and year ("September 2026"), always with the year. |
 | `logbook.time` | The time of the completion in the user's clock. |
+| `comment.day` | The day divider of a comment thread (section 9.5). 0 or later: "Today". -1: "Yesterday". Otherwise the weekday date ("Mon 5 Oct", "Tue 29 Dec 2026"), with the year when it differs. |
 
-For the logbook contexts the value is the completion time and is never date only. A completion
-time later than now (a clock that is a little ahead) counts as today.
+For the logbook and comment contexts the value is a moment that has happened (a completion, a
+comment's creation) and is never date only. A value later than now (a clock that is a little
+ahead) counts as today. A comment's time on its name line uses `logbook.time`.
 
 ### 8.4 Vectors
 
@@ -412,3 +455,192 @@ offset, as elsewhere in this document), `locale` (`en-US` or `en-GB`), `hour12`,
 boundaries between the phrases, the year boundary in both directions and the days around daylight
 saving changes in Pacific/Auckland and America/New_York. No vector uses a time inside a
 transition hour.
+
+---
+
+## 9. Collaboration
+
+Assignees and task comments for a household of a few people. Everything here is data Vikunja
+2.4 already keeps; Vicu stores nothing of its own on the server. The fixture block
+`collaboration` pins the rules that are data; the endpoints and the error answers below were
+checked against a 2.4.0 server.
+
+Not part of it, because the API has no such thing: presence or typing, an activity log ("Maya
+completed ..."; `done_at` has no author), threaded replies, files on comments (files stay task
+attachments), push delivery and a "household" object. Reactions exist in the API and are left out
+on purpose.
+
+### 9.1 Members and the shared rule
+
+- The **members** of a project are the answer of `GET projects/{id}/users/search` with an empty
+  `q`: the owner, the people it is shared with directly, the members of the teams it is shared
+  with, and the people a parent project is shared with (sharing a project shares its subprojects;
+  their own share lists stay empty).
+- A project is **shared** when its members include someone whose user id is not yours. Sharing is
+  the switch: assignees, comments and their signals appear only on tasks of shared projects. A
+  project nobody else can see shows nothing new, and an app whose user shares nothing looks and
+  fetches exactly as before. (The share lists alone are not enough: a subproject of a shared
+  project has none of its own, and a team that holds only you shares nothing.)
+- Apps keep the members with the project list, refresh them at most every 10 minutes and at once
+  after a share change, keep the last answer while offline, and drop them on an account change.
+  A project whose members are not known yet counts as not shared.
+- **Your permission** on a project is its `max_permission` (`GET projects?expand=permissions`):
+  0 read only, 1 read and write, 2 admin. An archived project counts as read only. Unknown counts
+  as read and write.
+- **A member's permission**, for the "Can view only" note: 2 for the owner of the project or of
+  one of its parent projects; otherwise the highest permission among the direct shares
+  (`GET projects/{id}/users`) and the team shares whose `members` include them
+  (`GET projects/{id}/teams`) of the project and all its parent projects. Unknown (no share
+  found) counts as read and write. Fixture: `collaboration.memberPermission`.
+
+### 9.2 Who can do what
+
+| Your permission | Assign | Comments | Share |
+|---|---|---|---|
+| 0, read only | the chip shows the assignees but does not open | read; no composer, "You can read comments in this project" instead | no |
+| 1, read and write | yes | read, write, edit and delete your own | no |
+| 2, admin | yes | as 1 | yes |
+
+- Read-only members are listed in Assign but cannot be picked: disabled, with "Can view only".
+  (The server would accept them; the rule keeps a task with someone who cannot act on it.)
+- Only the author may edit or delete a comment. Apps show Edit and Delete on your own comments
+  only; Edit only on a comment in the plain form (section 9.5).
+- Comments on done tasks stay readable and writable.
+
+### 9.3 People and names
+
+- A user's **display name** is `name`, trimmed, when it is not empty; otherwise `username`.
+- **Order**: wherever people are listed (assignee avatars and names, the Assign list, the
+  "Visible to" line), you come first, then the others in the order the server returned them.
+  Mention suggestions leave you out.
+- **Name list**: display names joined with ", ", with "You" for yourself: "You, Maya".
+- **Visible to**: "Visible to you" for one member, "Visible to you and Maya" for two, "Visible to
+  you, Maya and Sam" for more ("and" before the last; "you" in lower case).
+- **Accessible names**: the row's avatars "Assigned to you, Maya" (the name list with "you" in lower
+  case); the open task's chip "Assigned: You, Maya", or "Assign" when nobody is assigned; the
+  comment count "1 comment", "4 comments", with ", new" when unread ("2 comments, new").
+- **Avatars**: `GET avatar/{username}?size=N`, cached per user for the session. It answers an image
+  of any type (the default "initials" provider answers SVG) and a placeholder for an unknown user.
+  Until it arrives, or when it fails, the app draws the first letter of the display name in upper
+  case on a neutral fill. An avatar is decoration: it never carries meaning on its own.
+
+### 9.4 Signals on tasks
+
+- `assignees` is always on a task. `comment_count` and `is_unread` come only with
+  `expand=comment_count&expand=is_unread` (the parameter is repeated; a comma-separated value is
+  refused) and are left out of the answer when 0 and false. Apps add the two expands to task list
+  requests only while at least one project is shared.
+- `is_unread` is raised for every member except the author when a comment is added (a mention
+  raises it too; an assignment does not). `PUT tasks/{id}/read` clears it; it is idempotent. Apps
+  call it when the comments of a task open and clear the flag locally at once.
+- **Never put `assignees` in a task merge patch.** Assign is `POST tasks/{id}/assignees
+  {"user_id": N}` (an already assigned user answers 400 with code 4021, which counts as done);
+  unassign is `DELETE tasks/{id}/assignees/{userId}` (idempotent). Assigning someone also
+  subscribes them to the task on the server.
+- The row signals and their order are in `design-system-v1.md` section 4. An unassigned task with
+  no comments in a shared project looks exactly like a task in a private project.
+- Custom lists can select tasks by assignee, comments, shared project and recent change
+  (section 3.3).
+
+### 9.5 Comments
+
+- **Reading**: `GET tasks/{id}/comments?order_by=desc&per_page=50&page=N`, shown oldest first:
+  page 1 holds the newest 50 and older pages load when the thread is scrolled to the top. The
+  thread opens scrolled to the end.
+- **Writing**: `POST tasks/{id}/comments {"comment": html}`; edit with a merge patch
+  `PATCH tasks/{id}/comments/{commentId} {"comment": html}`; `DELETE tasks/{id}/comments/{commentId}`.
+  A comment is **edited** when its `updated` is at least one second after its `created` (the
+  server stamps both on create, a few microseconds apart): the name line adds " · edited".
+- **Day dividers** use the `comment.day` context of section 8 on `created`; the name line shows the
+  `logbook.time` of `created`.
+- **Mentions** notify only as an element. Vikunja's own editor and its Markdown import write
+  `<mention-user data-id="{username}" data-label="{label}">@{username}</mention-user>` (the web
+  editor leaves the element empty). Plain "@username" text notifies nobody. Apps write the element
+  and never send Markdown.
+
+**Comment HTML from text** (what the composer sends; fixture `collaboration.encode`):
+
+1. Line breaks (`\r\n`, `\r`) become `\n`; spaces, tabs, no-break spaces and line breaks at the
+   start and end of the whole text are removed. Empty text is not sent.
+2. A **mention** is an `@` at the start of the text or after a character that is not a letter, a
+   digit or `_`, followed by the username of a member (compared without case) and then by the end
+   of the text or a character that is not a letter, a digit or `_`. Members are tried longest
+   username first; the first that fits wins. Letters are the Unicode letter categories, digits the
+   decimal digits; characters are UTF-16 units. It becomes the element above with the member's own username in `data-id` and in the text,
+   and the display name in `data-label`. Anything else that starts with `@` is text.
+3. Text is escaped: `&` `&amp;`, `<` `&lt;`, `>` `&gt;`, `"` `&quot;` (attribute values the same).
+4. The lines are joined with `<br>` and wrapped in one `<p>...</p>`.
+
+**Text from comment HTML** (what the thread shows; fixture `collaboration.decode`):
+
+- A `mention-user` element is a mention of its `data-id`, shown as "@" and the display name of the
+  member with that username, else its `data-label`, else its text without the leading "@", else
+  the `data-id`. Its content is not shown otherwise.
+- `<br>` is a line break. The end of a `p`, `div`, `li`, `blockquote`, `pre` or `h1` to `h6` element
+  is a line break when more text follows. Every other tag is dropped and its text kept, except
+  `script` and `style`, whose content is dropped. Character references are decoded (`&amp;`
+  `&lt;` `&gt;` `&quot;` `&#39;` `&apos;` `&nbsp;` and numeric ones; any other stays as written). A
+  line break character inside text is a space. A `<` that does not start a tag, a comment or a
+  declaration (`<` followed by a letter, `/`, or `!`) is text.
+- A pending line break from the end of a block is written once, before the next text, mention or
+  `<br>`, however many blocks ended, and only when something was written before it. Text made only
+  of whitespace while a line break is pending (the indentation between blocks) is dropped.
+- Spaces, tabs, no-break spaces and line breaks at the start and end are removed. Plain
+  "@username" text stays text.
+- A comment is in the **plain form** when its only elements are `p`, `br` and `mention-user`. Only
+  those can be edited in Vicu: the editor gets the text with each mention as "@" + `data-id`, and
+  saving encodes it again as above. Other comments (rich text from Vikunja's web editor) are
+  shown as text and can be deleted, not edited, so no formatting is lost.
+
+**Mention suggestions** (fixture `collaboration.mention`): while the text before the caret ends
+with an `@` that is at the start or after whitespace, followed by zero or more characters that are
+not whitespace and not `@`, those characters are the query. Suggestions are the members other than
+you whose username, display name or a word of the display name starts with the query (without
+case), in member order. Picking one replaces the `@` and the query with `@{username} ` (one
+space), and the caret moves after the space.
+
+### 9.6 Offline
+
+- Assign, unassign, a new comment, an edited comment and a deleted comment are queued like label
+  changes when the server cannot be reached or the task has changes waiting, with a new entity
+  type `comment`. They replay in order with the task's other changes, after the task's own create.
+- Folding: assigning and then unassigning the same user (or the reverse) before the queue is sent
+  cancels both; an edit of a comment that is still waiting to be created goes into the create; a
+  delete of such a comment removes the create; two edits of one comment keep the last text; a
+  delete after an edit replaces the edit.
+- A comment written offline has a negative temp id until its create replays and appears in the
+  thread at once with "Waiting to sync" in place of its time.
+- Replay answers: an assign answered 400 with code 4021 (already assigned) is done; an unassign
+  is idempotent; a comment delete answered 404 is done; a 403 on any of these moves the action to
+  the failed log (the user may no longer write to the project) instead of stopping the queue; a
+  404 on a comment create or edit moves it to the failed log.
+- Subscriptions and "mark read" are not queued: a subscription change needs the server's answer,
+  and a read that does not reach the server is simply repeated the next time the comments open.
+
+### 9.7 Notify me and sharing
+
+- "Notify me" is the task subscription: `task.subscription` (present only on a single-task read,
+  `GET tasks/{id}`) is on when it is not null. `POST subscriptions/task/{id}` turns it on (412
+  with code 12002 means already on, which counts as done); `DELETE subscriptions/task/{id}` turns
+  it off. Apps toggle it optimistically and put it back with a message when the server refuses.
+- Sharing (admins only): find the person with `GET users?q={username}`, which matches a username
+  exactly (names and emails match only people who made themselves discoverable); share with
+  `POST projects/{id}/users {"username", "permission"}` (default 1; 409 code 7002: already has
+  access; 404 code 1005: no such user); change with `PUT projects/{id}/users/{username}
+  {"permission"}`; remove with `DELETE projects/{id}/users/{username}`. The owner cannot be added.
+  Team shares are listed read only and are managed in Vikunja. A change refreshes the project's
+  members at once; when a project stops being shared, its chips and signals go and an open comments
+  pane or screen closes.
+
+### 9.8 Vectors
+
+`collaboration.shared` gives `me` and the member ids. `memberPermission` gives a project tree
+(`id`, `parent`, `owner`), the direct shares and team shares per project id, and the project and
+user asked about; `null` means unknown. `names` gives `me`, the people in server order and the
+expected name list, "Visible to" line and the two accessible names. `countLabel` gives a count,
+the unread flag and the text. `encode` gives the text, the members and the HTML. `decode` gives the
+HTML, the members and the expected `segments` (`{"text"}` and `{"mention", "label"}`, adjacent
+text merged), the `plain` flag and, for plain comments, the `editText`. `mention` gives the text,
+the caret (a UTF-16 offset), `me`, the members, the expected `query` (or `null`), the suggested
+usernames and, when `pick` is set, the text and caret after picking that username. `edited` gives
+`created`, `updated` (UTC instants) and the flag.

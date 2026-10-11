@@ -245,6 +245,28 @@ html[data-platform="win32"],
 }
 
 /*
+ * The comments pane (design system 4.1, collaboration D3) enters from the right: a fade and a 12 px
+ * slide with the move spring. It has no exit animation (it is removed when it closes). Reduced
+ * motion: a fade over fade.fast.
+ */
+@keyframes vicu-pane-in {
+  from {
+    opacity: 0;
+    translate: 12px 0;
+  }
+}
+
+.vicu-pane-in {
+  animation: vicu-pane-in var(--dur-move) var(--spring-move);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vicu-pane-in {
+    animation: vicu-bar-fade var(--dur-fade-fast) var(--ease-standard);
+  }
+}
+
+/*
  * Completing a task (card 4.2c, the same moves as Android). The checkbox ring fills with the pop
  * spring (360 ms, it overshoots a little), the check draws over 220 ms and the title strike draws
  * left to right over 240 ms. They only play when the task was completed while the row is on screen
@@ -734,6 +756,18 @@ html:active-view-transition-type(page) main {
   .vicu-hairline {
     background: none;
     border-bottom: 1px solid CanvasText;
+  }
+
+  /* Avatars are pictures on a tint: give them an edge. The unread dot keeps a solid shape; the count
+     next to it also turns bold, so "new" never rests on the colour. */
+  .vicu-avatar {
+    outline: 1px solid CanvasText;
+    outline-offset: -1px;
+  }
+  .vicu-unread-dot {
+    background-color: Highlight;
+    box-shadow: none;
+    forced-color-adjust: none;
   }
 
   /* A dragged row lifts on a shadow alone: give the overlay an edge while it is dragged. */

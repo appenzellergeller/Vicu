@@ -17,10 +17,16 @@ import { OfflineAttachmentFiles } from './attachments'
 import { isSameOwner, type OfflineOwner } from './owner'
 import {
   cancelPatchKeys,
+  mergeAddAssignee,
   mergeAddLabel,
+  mergeCreateComment,
   mergeDelete,
+  mergeDeleteComment,
+  mergeRemoveAssignee,
   mergeRemoveLabel,
   mergeUpdate,
+  mergeUpdateComment,
+  remapTempCommentId,
   remapTempId,
   type MergeOutcome,
 } from './queue-merge'
@@ -31,8 +37,13 @@ import {
   emptyQueueData,
   hasTaskId,
   pendingIdFor,
+  type AddAssigneeAction,
   type AddLabelAction,
   type CreateAction,
+  type CreateCommentAction,
+  type DeleteCommentAction,
+  type RemoveAssigneeAction,
+  type UpdateCommentAction,
   type DeleteAction,
   type FailedAction,
   type QueueData,
@@ -325,6 +336,97 @@ export class OfflineQueue {
     return { actionId: action.id, taskId, folded: !outcome.appended }
   }
 
+  /** Assign a user to a task (cross-app semantics 9.6). Cancels a queued unassign of the same user. */
+  async enqueueAddAssignee(ref: number | string, userId: number, meta: Meta & { username?: string } = {}): Promise<OfflineEnqueueResult> {
+    const taskId = this.requireTask(ref)
+    if (!Number.isInteger(userId) || userId <= 0) throw new Error('An assignee needs a user id')
+    const action: AddAssigneeAction = {
+      ...this.stamp(meta),
+      type: 'add-assignee',
+      taskId,
+      userId,
+      ...(meta.username ? { username: meta.username } : {}),
+    }
+    const outcome = mergeAddAssignee(this.data.actions, action, this.inFlightId)
+    if (outcome.noop && outcome.removed.length === 0) return { actionId: '', taskId, folded: true }
+    await this.apply(outcome)
+    return { actionId: action.id, taskId, folded: !outcome.appended }
+  }
+
+  /** Unassign a user. Cancels a queued assign of the same user. */
+  async enqueueRemoveAssignee(ref: number | string, userId: number, meta: Meta & { username?: string } = {}): Promise<OfflineEnqueueResult> {
+    const taskId = this.requireTask(ref)
+    if (!Number.isInteger(userId) || userId <= 0) throw new Error('An assignee needs a user id')
+    const action: RemoveAssigneeAction = {
+      ...this.stamp(meta),
+      type: 'remove-assignee',
+      taskId,
+      userId,
+      ...(meta.username ? { username: meta.username } : {}),
+    }
+    const outcome = mergeRemoveAssignee(this.data.actions, action, this.inFlightId)
+    if (outcome.noop && outcome.removed.length === 0) return { actionId: '', taskId, folded: true }
+    await this.apply(outcome)
+    return { actionId: action.id, taskId, folded: !outcome.appended }
+  }
+
+  /** Queue a new comment. It gets a negative temp id that queued edits and deletes of it use. */
+  async enqueueCreateComment(ref: number | string, comment: string, meta: Meta = {}): Promise<OfflineEnqueueResult & { tempCommentId: number }> {
+    const taskId = this.requireTask(ref)
+    if (!comment.trim()) throw new Error('A comment needs text')
+    const tempCommentId = this.data.lastTempId - 1
+    this.data.lastTempId = tempCommentId
+    const action: CreateCommentAction = { ...this.stamp(meta), type: 'create-comment', taskId, tempCommentId, comment }
+    await this.apply(mergeCreateComment(this.data.actions, action))
+    return { actionId: action.id, taskId, folded: false, tempCommentId }
+  }
+
+  /** Queue an edit of a comment: folds into its pending create or a queued edit of it. */
+  async enqueueUpdateComment(ref: number | string, commentId: number, comment: string, meta: Meta = {}): Promise<OfflineEnqueueResult> {
+    const taskId = this.requireTask(ref)
+    if (!Number.isInteger(commentId) || commentId === 0) throw new Error('That comment is not known')
+    if (!comment.trim()) throw new Error('A comment needs text')
+    if (commentId < 0 && !this.hasCommentRef(commentId)) throw new Error('That comment is not waiting to be created any more')
+    const action: UpdateCommentAction = { ...this.stamp(meta), type: 'update-comment', taskId, commentId, comment }
+    const outcome = mergeUpdateComment(this.data.actions, action, this.inFlightId)
+    await this.apply(outcome)
+    return { actionId: outcome.foldedInto ?? action.id, taskId, folded: !outcome.appended }
+  }
+
+  /** Queue the deletion of a comment. A comment that was never created just leaves the queue. */
+  async enqueueDeleteComment(ref: number | string, commentId: number, meta: Meta = {}): Promise<OfflineEnqueueResult> {
+    const taskId = this.requireTask(ref)
+    if (!Number.isInteger(commentId) || commentId === 0) throw new Error('That comment is not known')
+    const action: DeleteCommentAction = { ...this.stamp(meta), type: 'delete-comment', taskId, commentId }
+    const outcome = mergeDeleteComment(this.data.actions, action, this.inFlightId)
+    if (outcome.noop && outcome.removed.length === 0) return { actionId: '', taskId, folded: true }
+    await this.apply(outcome)
+    return { actionId: outcome.appended ? action.id : '', taskId, folded: !outcome.appended }
+  }
+
+  /** Whether a temp comment id still belongs to a queued create (or a resolved one). */
+  private hasCommentRef(tempCommentId: number): boolean {
+    return (
+      this.data.actions.some((a) => a.type === 'create-comment' && a.tempCommentId === tempCommentId) ||
+      this.data.resolved[`comment:${tempCommentId}`] !== undefined
+    )
+  }
+
+  /** The real id of a comment created offline, once its create replayed. */
+  resolveCommentRef(commentId: number): number | null {
+    if (commentId > 0) return commentId
+    if (this.data.actions.some((a) => a.type === 'create-comment' && a.tempCommentId === commentId)) return commentId
+    return this.data.resolved[`comment:${commentId}`] ?? null
+  }
+
+  /** The queued comment actions of one task, in queue order (the thread overlays them). */
+  commentActionsFor(taskId: number): Array<CreateCommentAction | UpdateCommentAction | DeleteCommentAction> {
+    return this.data.actions.filter(
+      (a): a is CreateCommentAction | UpdateCommentAction | DeleteCommentAction =>
+        (a.type === 'create-comment' || a.type === 'update-comment' || a.type === 'delete-comment') && a.taskId === taskId
+    )
+  }
+
   /**
    * Queue a new task with everything the user set. Labels and pasted images become follow-up
    * actions bound to the task's temp id; images are written to disk first (D-QE-1).
@@ -603,6 +705,12 @@ export class OfflineQueue {
     const action = this.data.actions[index]
     let actions = [...this.data.actions.slice(0, index), ...this.data.actions.slice(index + 1)]
 
+    if (action.type === 'create-comment' && result.realId !== undefined) {
+      actions = remapTempCommentId(actions, action.tempCommentId, result.realId)
+      this.data.resolved[`comment:${action.tempCommentId}`] = result.realId
+      this.trimResolved()
+    }
+
     if (action.type === 'create' && result.realId !== undefined) {
       actions = remapTempId(actions, action.tempId, result.realId, typeof action.fields.title === 'string' ? action.fields.title : undefined)
       this.data.resolved[String(action.tempId)] = result.realId
@@ -678,7 +786,10 @@ export class OfflineQueue {
   }
 
   /** Persist progress inside an action (a resolved label id, "already uploaded"). */
-  async patchAction(id: string, changes: { labelId?: number; uploaded?: boolean; maybeSent?: CreateAction['maybeSent'] }): Promise<void> {
+  async patchAction(
+    id: string,
+    changes: { labelId?: number; uploaded?: boolean; maybeSent?: CreateAction['maybeSent'] | CreateCommentAction['maybeSent'] }
+  ): Promise<void> {
     const index = this.data.actions.findIndex((a) => a.id === id)
     if (index === -1) return
     this.data.actions = this.data.actions.map((a, i) => (i === index ? ({ ...a, ...changes } as QueuedAction) : a))

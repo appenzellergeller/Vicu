@@ -4,7 +4,9 @@
 //
 // Idempotent: it makes sure the test user and an API token exist, deletes that user's projects,
 // tasks and labels (the default Inbox project stays, emptied), and re-creates the dataset with
-// every date relative to today. Credentials, the token and the created ids go to
+// every date relative to today. Two more people, Maya (uimaya) and Sam (uisam), share "Trip to
+// Lisbon" (Maya can edit, Sam can view) for the collaboration scenario; their own extra projects
+// are deleted too. Credentials, the token and the created ids go to
 // scripts/ui-verify/.local/ (git-ignored); nothing secret is printed. After a re-seed, run
 // profile.mjs again (the Inbox id may have changed) - desktop.mjs does that on its own.
 import {
@@ -12,6 +14,7 @@ import {
   createApi,
   dateOnly,
   ensureApiToken,
+  ensureExtraUser,
   ensureUserAndLogin,
   localDate,
   writeLocal,
@@ -47,7 +50,23 @@ async function removeQuietly(path) {
   }
 }
 
-const allProjects = (await api.list('/projects', { is_archived: 'true' })).filter((p) => p.id > 0)
+const maya = await ensureExtraUser('uimaya', 'Maya')
+const sam = await ensureExtraUser('uisam', 'Sam')
+// Projects the other people made (and maybe shared with the test user) go first.
+for (const person of [maya, sam]) {
+  const theirs = createApi(person.jwt)
+  const their = await theirs.get('/user')
+  for (const p of (await theirs.list('/projects', { is_archived: 'true' })).filter((p) => p.id > 0 && p.owner?.id === their.id)) {
+    if (p.id === their.settings?.default_project_id) continue
+    try {
+      await theirs.del(`/projects/${p.id}`)
+    } catch (e) {
+      if (e.status !== 404) throw e
+    }
+  }
+}
+
+const allProjects = (await api.list('/projects', { is_archived: 'true' })).filter((p) => p.id > 0 && (!p.owner || p.owner.id === me.id))
 const defaultProject = allProjects.find((p) => p.id === defaultProjectId)
 for (const p of allProjects) {
   if (p.id !== defaultProject?.id) await removeQuietly(`/projects/${p.id}`)
@@ -137,7 +156,7 @@ await task(home.id, 'Call the plumber about the kitchen leak', {
 })
 await task(personal.id, 'Buy groceries', { key: 'groceries', due_date: dateOnly(0), labels: ['errand'], description: checklist })
 await task(personal.id, 'Water the plants', { due_date: dateOnly(0), repeat_after: 3 * 86400 })
-await task(lisbon.id, 'Book flights to Lisbon', { due_date: dateOnly(0), priority: 2 })
+await task(lisbon.id, 'Book flights to Lisbon', { key: 'flights', due_date: dateOnly(0), priority: 2 })
 await task(personal.id, 'Send the signed lease back to the landlord', { due_date: dateOnly(0), priority: 5 })
 
 // Upcoming
@@ -161,7 +180,7 @@ await task(home.id, 'Get quotes for the kitchen tiles', { priority: 1 })
 await task(home.id, 'Choose paint colours for the hallway', { labels: ['waiting'] })
 await task(home.id, 'Fix the squeaky bedroom door', { labels: ['quick win'] })
 await task(lisbon.id, 'Research a day trip to Sintra')
-await task(lisbon.id, 'Reserve dinner at a tasca in Alfama', { labels: ['call'] })
+await task(lisbon.id, 'Reserve dinner at a tasca in Alfama', { key: 'dinner', labels: ['call'] })
 await task(lisbon.id, 'Make a packing list')
 
 // Inbox
@@ -188,6 +207,32 @@ for (const [p, title] of [
   await task(p, title, { done: true })
 }
 
+// Collaboration: "Trip to Lisbon" is shared with Maya (can edit) and Sam (can view). Flights are
+// assigned to the test user and Maya and carry a thread that ends with Maya mentioning the test user
+// (so it is unread); dinner is assigned to Maya. Every other project stays private. The server
+// handles an assignment's notification and subscription after it answers, and SQLite then answers
+// the next write with "database is locked" (a 500): those writes are retried.
+async function retrying(write) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await write()
+    } catch (e) {
+      if (e.status !== 500 || attempt >= 6) throw e
+      await new Promise((resolve) => setTimeout(resolve, 250 * attempt))
+    }
+  }
+}
+await retrying(() => api.post(`/projects/${lisbon.id}/users`, { username: maya.user.username, permission: 1 }))
+await retrying(() => api.post(`/projects/${lisbon.id}/users`, { username: sam.user.username, permission: 0 }))
+await retrying(() => api.post(`/tasks/${named.flights}/assignees`, { user_id: me.id }))
+await retrying(() => api.post(`/tasks/${named.flights}/assignees`, { user_id: maya.user.id }))
+await retrying(() => api.post(`/tasks/${named.dinner}/assignees`, { user_id: maya.user.id }))
+await retrying(() => api.post(`/tasks/${named.flights}/comments`, { comment: '<p>I can do the 14th to the 19th.</p>' }))
+const mayaApi = createApi(maya.jwt)
+const mention = `<mention-user data-id="${me.username}" data-label="${me.name || me.username}">@${me.username}</mention-user>`
+await retrying(() => mayaApi.post(`/tasks/${named.flights}/comments`, { comment: `<p>TAP has a fare for 189 each. ${mention} does that work?</p>` }))
+await retrying(() => mayaApi.post(`/tasks/${named.dinner}/comments`, { comment: '<p>Ana recommended Taberna da Rua das Flores.</p>' }))
+
 writeLocal('seed-ids.json', {
   seededOn: localDate(0),
   timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -200,8 +245,10 @@ writeLocal('seed-ids.json', {
   lisbon: lisbon.id,
   labels: Object.fromEntries(Object.entries(labels).map(([k, v]) => [k, v.id])),
   tasks: named,
+  me: { id: me.id, username: me.username },
+  people: { maya: maya.user, sam: sam.user },
 })
 
 const tasks = await api.list('/tasks', { filter: 'done = false' })
-console.log(`seeded: 7 projects, ${labelDefs.length} labels, ${tasks.length} open tasks; Inbox project id ${inbox.id}`)
+console.log(`seeded: 7 projects (Trip to Lisbon shared with Maya and Sam), ${labelDefs.length} labels, ${tasks.length} open tasks; Inbox project id ${inbox.id}`)
 console.log(`credentials, token and ids are in scripts/ui-verify/.local/ (token ${token && creds ? 'ready' : 'missing'})`)

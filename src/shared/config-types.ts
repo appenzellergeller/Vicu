@@ -43,6 +43,14 @@ export interface CustomListWireFilter {
   include_today_all_projects: boolean
   /** Whether date windows also include overdue tasks. Absent means true. */
   include_overdue?: boolean
+  /** 'me', 'others' or 'nobody' (section 3.3 of the contract); another string is kept and is no condition. */
+  assigned?: string
+  /** 'unread' or 'any'; another string is kept and is no condition. */
+  comments?: string
+  /** Only tasks of shared projects. Written only when true. */
+  shared_only?: boolean
+  /** Only tasks changed on the last N local days, today included. Written only when a whole number of 1 or more. */
+  changed_within_days?: number
   [unknownField: string]: unknown
 }
 
@@ -85,6 +93,14 @@ export interface CustomListFilter {
   include_today_all_projects?: boolean
   /** Whether the today / this week / this month windows also include overdue tasks. Absent means true. */
   include_overdue?: boolean
+  /** 'me', 'others' or 'nobody' (section 3.3 of the contract); another string is kept and is no condition. */
+  assigned?: string
+  /** 'unread' or 'any'; another string is kept and is no condition. */
+  comments?: string
+  /** Only tasks of shared projects. Written only when true. */
+  shared_only?: boolean
+  /** Only tasks changed on the last N local days, today included. Written only when a whole number of 1 or more. */
+  changed_within_days?: number
   [unknownField: string]: unknown
 }
 
@@ -122,6 +138,10 @@ export interface ViewerFilter {
   include_overdue?: boolean
   priority_filter?: number[]
   label_ids?: number[]
+  assigned?: string
+  comments?: string
+  shared_only?: boolean
+  changed_within_days?: number
 }
 
 export interface SecondaryProject {

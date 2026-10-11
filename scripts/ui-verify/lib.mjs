@@ -198,8 +198,14 @@ async function tryLogin(creds) {
 export async function ensureUserAndLogin() {
   await requireServer()
   const creds = loadOrCreateCredentials()
+  const jwt = await loginOrCreate(creds)
+  return { jwt, creds }
+}
+
+/** Logs in with stored credentials; creates the user (or resets its password) when that fails. */
+async function loginOrCreate(creds) {
   let jwt = await tryLogin(creds)
-  if (jwt) return { jwt, creds }
+  if (jwt) return jwt
 
   let created = true
   try {
@@ -217,7 +223,31 @@ export async function ensureUserAndLogin() {
   }
   jwt = await tryLogin(creds)
   if (!jwt) throw new Error(`Could not log in as ${creds.username} after creating it.`)
-  return { jwt, creds }
+  return jwt
+}
+
+/**
+ * A second test person for the collaboration scenarios (`uimaya` "Maya", `uisam` "Sam"): made
+ * like the test user, with credentials in .local/credentials-<username>.json, and given a display
+ * name. Returns a login JWT and the server's user ({ id, username, name }).
+ */
+export async function ensureExtraUser(username, name) {
+  await requireServer()
+  const file = `credentials-${username}.json`
+  let creds = readLocalJson(file)
+  if (!creds?.username || !creds?.password) {
+    creds = { username, email: `${username}@example.test`, password: randomBytes(18).toString('base64url') }
+    writeLocal(file, creds)
+  }
+  const jwt = await loginOrCreate(creds)
+  const api = createApi(jwt)
+  let user = await api.get('/user')
+  if (user.name !== name) {
+    // PUT replaces every general setting: send the current ones back with the new name.
+    await api.put('/user/settings/general', { ...(user.settings ?? {}), name })
+    user = await api.get('/user')
+  }
+  return { jwt, user: { id: user.id, username: user.username, name: user.name } }
 }
 
 /**

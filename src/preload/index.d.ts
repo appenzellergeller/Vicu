@@ -21,6 +21,10 @@ import type {
   AuthCheckResult,
   CustomList,
   CustomListSyncStatus,
+  PersonRef,
+  ProjectShares,
+  TaskComment,
+  TaskCommentPage,
 } from '../renderer/lib/vikunja-types'
 import type { TaskPatch } from '../shared/merge-patches'
 import type {
@@ -32,6 +36,7 @@ import type {
   OfflineQueueResult,
   OfflineQueueSnapshot,
   OfflineReplayEvent,
+  QueuedCommentReply,
   QueuedWriteReply,
   TaskWriteOptions,
 } from '../shared/offline-queue-types'
@@ -64,6 +69,27 @@ export interface ElectronAPI {
   fetchTaskById(id: number): Promise<ApiResult<Task>>
   createTaskRelation(taskId: number, otherTaskId: number, relationKind: string): Promise<ApiResult<unknown>>
   deleteTaskRelation(taskId: number, relationKind: string, otherTaskId: number): Promise<ApiResult<void>>
+
+  // Collaboration (docs/cross-app-semantics-v1.md section 9)
+  /** Everyone who can see the project: owner, direct shares, team members, parent shares. */
+  searchProjectUsers(projectId: number): Promise<ApiResult<PersonRef[]>>
+  fetchProjectShares(projectId: number): Promise<ApiResult<ProjectShares>>
+  /** Exact username, or the name or email of someone who made themselves findable. */
+  searchUsers(query: string): Promise<ApiResult<PersonRef[]>>
+  shareProject(projectId: number, username: string, permission: number): Promise<ApiResult<unknown>>
+  updateProjectShare(projectId: number, username: string, permission: number): Promise<ApiResult<unknown>>
+  removeProjectShare(projectId: number, username: string): Promise<ApiResult<void>>
+  /** A data URL of the user's avatar. */
+  fetchAvatar(username: string, size: number): Promise<ApiResult<string>>
+  addTaskAssignee(taskId: number, userId: number, options?: TaskWriteOptions): Promise<ApiResult<unknown> | QueuedWriteReply>
+  removeTaskAssignee(taskId: number, userId: number, options?: TaskWriteOptions): Promise<ApiResult<void> | QueuedWriteReply>
+  /** A page of the thread, newest first, with queued comment changes laid over it. */
+  fetchTaskComments(taskId: number, page: number): Promise<ApiResult<TaskCommentPage>>
+  createTaskComment(taskId: number, html: string, options?: TaskWriteOptions): Promise<ApiResult<TaskComment> | QueuedCommentReply>
+  updateTaskComment(taskId: number, commentId: number, html: string, options?: TaskWriteOptions): Promise<ApiResult<TaskComment> | QueuedWriteReply>
+  deleteTaskComment(taskId: number, commentId: number, options?: TaskWriteOptions): Promise<ApiResult<void> | QueuedWriteReply>
+  markTaskRead(taskId: number): Promise<ApiResult<unknown>>
+  setTaskSubscription(taskId: number, subscribed: boolean): Promise<ApiResult<unknown>>
 
   // Project views
   fetchProjectViews(projectId: number): Promise<ApiResult<ProjectView[]>>

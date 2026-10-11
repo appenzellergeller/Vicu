@@ -21,6 +21,11 @@ export type OfflineActionType =
   | 'add-label'
   | 'remove-label'
   | 'upload-attachment'
+  | 'add-assignee'
+  | 'remove-assignee'
+  | 'create-comment'
+  | 'update-comment'
+  | 'delete-comment'
 
 export type OfflineFailureReason =
   | 'rejected' // 400 / 413 / 422: the server refused the data
@@ -31,6 +36,7 @@ export type OfflineFailureReason =
   | 'dependency-failed' // the task this action belongs to was never created
   | 'gave-up' // unknown errors on several replays in a row
   | 'other-account' // queued for a different server or user than the one signed in now
+  | 'forbidden' // 403 on an assignee or comment change: the user may no longer change the project, or the comment is not theirs
 
 /** Why a replay stopped before the queue was empty. `null` means it finished. */
 export type OfflineReplayStop = 'auth' | 'network' | 'server' | 'rate-limit' | 'config' | 'unknown'
@@ -171,6 +177,8 @@ export interface TaskWriteOptions {
   title?: string
   /** A label's title, kept with a queued "add label" so the replay can look the label up by name. */
   labelTitle?: string
+  /** A person's username, kept with a queued assign or unassign for the sync panel's summary line. */
+  username?: string
 }
 
 /** What a queue-aware task write answers when the change went into the offline queue instead of the server. */
@@ -178,4 +186,12 @@ export interface QueuedWriteReply {
   success: true
   queued: true
   data: null
+}
+
+/** What a queue-aware comment create answers when the comment went into the offline queue: its temp id. */
+export interface QueuedCommentReply {
+  success: true
+  queued: true
+  /** Negative until the create replays; edits and deletes of the pending comment use it. */
+  data: { tempCommentId: number }
 }

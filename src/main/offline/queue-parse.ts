@@ -11,6 +11,7 @@ const FAILURE_REASONS: ReadonlySet<string> = new Set<OfflineFailureReason>([
   'dependency-failed',
   'gave-up',
   'other-account',
+  'forbidden',
 ])
 
 const isRecord = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
@@ -76,6 +77,32 @@ export function normalizeAction(raw: unknown): QueuedAction | null {
         ...(raw.addImageToken === true ? { addImageToken: true } : {}),
         ...(raw.uploaded === true ? { uploaded: true } : {}),
       }
+    case 'add-assignee':
+    case 'remove-assignee':
+      if (!isInt(raw.taskId) || !isInt(raw.userId) || raw.userId <= 0) return null
+      return {
+        ...base,
+        type: raw.type,
+        taskId: raw.taskId,
+        userId: raw.userId,
+        ...(isString(raw.username) ? { username: raw.username } : {}),
+      }
+    case 'create-comment':
+      if (!isInt(raw.taskId) || !isInt(raw.tempCommentId) || raw.tempCommentId >= 0 || !isString(raw.comment)) return null
+      return {
+        ...base,
+        type: 'create-comment',
+        taskId: raw.taskId,
+        tempCommentId: raw.tempCommentId,
+        comment: raw.comment,
+        ...(raw.maybeSent === true ? { maybeSent: true } : {}),
+      }
+    case 'update-comment':
+      if (!isInt(raw.taskId) || !isInt(raw.commentId) || raw.commentId === 0 || !isString(raw.comment)) return null
+      return { ...base, type: 'update-comment', taskId: raw.taskId, commentId: raw.commentId, comment: raw.comment }
+    case 'delete-comment':
+      if (!isInt(raw.taskId) || !isInt(raw.commentId) || raw.commentId === 0) return null
+      return { ...base, type: 'delete-comment', taskId: raw.taskId, commentId: raw.commentId }
     default:
       return null
   }
@@ -123,8 +150,9 @@ export function parseQueueData(json: unknown): QueueData {
 
   // Temp ids only count down: never hand out one that is still referenced.
   let lowest = isInt(json.lastTempId) && json.lastTempId <= 0 ? json.lastTempId : 0
-  for (const a of data.actions) if (a.type === 'create') lowest = Math.min(lowest, a.tempId)
-  for (const f of data.failed) if (f.action.type === 'create') lowest = Math.min(lowest, f.action.tempId)
+  const tempIdOf = (a: QueuedAction): number => (a.type === 'create' ? a.tempId : a.type === 'create-comment' ? a.tempCommentId : 0)
+  for (const a of data.actions) lowest = Math.min(lowest, tempIdOf(a))
+  for (const f of data.failed) lowest = Math.min(lowest, tempIdOf(f.action))
   for (const key of Object.keys(data.resolved)) {
     const n = Number(key)
     if (Number.isInteger(n)) lowest = Math.min(lowest, n)

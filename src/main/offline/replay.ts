@@ -27,6 +27,16 @@ export interface ReplayApi {
    * created since `since`. Null when there is none.
    */
   findRecentCreate(projectId: number, fields: Record<string, unknown>, since: string): Promise<ApiResult<{ id: number } | null>>
+  addTaskAssignee(taskId: number, userId: number): Promise<ApiResult<unknown>>
+  removeTaskAssignee(taskId: number, userId: number): Promise<ApiResult<unknown>>
+  createTaskComment(taskId: number, html: string): Promise<ApiResult<unknown>>
+  updateTaskComment(taskId: number, commentId: number, html: string): Promise<ApiResult<unknown>>
+  deleteTaskComment(taskId: number, commentId: number): Promise<ApiResult<unknown>>
+  /**
+   * The comment an unconfirmed create would have produced: same text, by the signed-in user,
+   * created since `since`. Null when there is none.
+   */
+  findRecentComment(taskId: number, html: string, since: string): Promise<ApiResult<{ id: number } | null>>
 }
 
 /** Replays that stop on the same action with an error that is neither network nor auth, before it is moved to the failed log. */
@@ -106,6 +116,10 @@ export async function replayQueue(queue: OfflineQueue, api: ReplayApi): Promise<
             // so the retry checks before it posts again.
             if (action.type === 'create' && decision.why !== 'auth' && !isQueueableFailure(step.failure, 'create')) {
               await queue.patchAction(action.id, { maybeSent: { projectId: action.projectId, fields: action.fields } })
+            }
+            // The same for a comment: the retry looks for it before posting it again.
+            if (action.type === 'create-comment' && decision.why !== 'auth' && !isQueueableFailure(step.failure, 'create')) {
+              await queue.patchAction(action.id, { maybeSent: true })
             }
             if (decision.why === 'unknown') {
               // Something the server said that we have no rule for. Keep the action for a few
@@ -215,6 +229,37 @@ async function sendAction(queue: OfflineQueue, api: ReplayApi, action: QueuedAct
     }
     case 'upload-attachment':
       return sendUpload(queue, api, action, taskId)
+    case 'add-assignee': {
+      const result = await api.addTaskAssignee(taskId, action.userId)
+      return result.success ? { kind: 'ok' } : fail(result)
+    }
+    case 'remove-assignee': {
+      const result = await api.removeTaskAssignee(taskId, action.userId)
+      return result.success ? { kind: 'ok' } : fail(result)
+    }
+    case 'create-comment': {
+      if (action.maybeSent) {
+        const existing = await api.findRecentComment(taskId, action.comment, action.createdAt)
+        if (!existing.success) return fail(existing)
+        if (existing.data) return { kind: 'ok', realId: existing.data.id }
+      }
+      const result = await api.createTaskComment(taskId, action.comment)
+      if (!result.success) return fail(result)
+      const id = (result.data as { id?: unknown } | null)?.id
+      return { kind: 'ok', realId: typeof id === 'number' && id > 0 ? id : undefined }
+    }
+    case 'update-comment':
+    case 'delete-comment': {
+      const commentId = queue.resolveCommentRef(action.commentId)
+      if (commentId === null || commentId < 0) {
+        return { kind: 'broken', reason: 'dependency-failed', error: 'The comment this change belongs to was never created' }
+      }
+      const result =
+        action.type === 'update-comment'
+          ? await api.updateTaskComment(taskId, commentId, action.comment)
+          : await api.deleteTaskComment(taskId, commentId)
+      return result.success ? { kind: 'ok' } : fail(result)
+    }
   }
 }
 

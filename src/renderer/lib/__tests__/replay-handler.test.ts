@@ -46,6 +46,7 @@ describe('handleReplayed', () => {
       ['section-tasks'],
       ['task-detail'],
       ['project-counts'],
+      ['task-comments'],
     ])
   })
 
@@ -53,6 +54,15 @@ describe('handleReplayed', () => {
     const { qc, invalidate, deps } = setup()
 
     handleReplayed(qc, event({ applied: 2, counts: { pending: 1, failed: 0 }, stopped: 'network' }), deps)
+
+    // Comment threads still refetch: the main process lays what is queued over them.
+    expect(invalidate.mock.calls.map((c) => (c[0] as { queryKey: unknown[] }).queryKey)).toEqual([['task-comments']])
+  })
+
+  it('does not refetch comment threads when nothing was applied or failed', () => {
+    const { qc, invalidate, deps } = setup()
+
+    handleReplayed(qc, event({ applied: 0, failed: 0, stopped: 'auth', counts: { pending: 1, failed: 0 } }), deps)
 
     expect(invalidate).not.toHaveBeenCalled()
   })

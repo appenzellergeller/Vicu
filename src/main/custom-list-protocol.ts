@@ -6,6 +6,7 @@ import type {
   CustomListSyncRecord,
   CustomListWire,
 } from '../shared/config-types'
+import { changedWithinDays } from '../shared/custom-list-filter'
 export type {
   CustomList,
   CustomListFilter,
@@ -120,6 +121,10 @@ const KNOWN_FILTER_KEYS: ReadonlySet<string> = new Set([
   'include_done',
   'include_today_all_projects',
   'include_overdue',
+  'assigned',
+  'comments',
+  'shared_only',
+  'changed_within_days',
 ])
 
 /**
@@ -138,9 +143,13 @@ function unknownFields(source: object, known: ReadonlySet<string>): Record<strin
 /**
  * The canonical form of a synced list: known fields are validated and defaulted, and unknown
  * fields (list value and filter) are carried over untouched so a field added by another app
- * survives a round trip through this one. `include_overdue` is only written when it was set.
+ * survives a round trip through this one. `include_overdue` is only written when it was set;
+ * `assigned` and `comments` when they are a non-empty string (a value from a newer app is kept),
+ * `shared_only` when true and `changed_within_days` when it is a whole number of 1 or more.
  */
 export function normalizeWireList(value: CustomListWire): CustomListWire {
+  const { assigned, comments } = value.filter
+  const changedDays = changedWithinDays(value.filter)
   return {
     id: value.id,
     name: value.name.trim(),
@@ -157,6 +166,10 @@ export function normalizeWireList(value: CustomListWire): CustomListWire {
       include_done: value.filter.include_done === true,
       include_today_all_projects: value.filter.include_today_all_projects === true,
       ...(typeof value.filter.include_overdue === 'boolean' ? { include_overdue: value.filter.include_overdue } : {}),
+      ...(typeof assigned === 'string' && assigned ? { assigned } : {}),
+      ...(typeof comments === 'string' && comments ? { comments } : {}),
+      ...(value.filter.shared_only === true ? { shared_only: true } : {}),
+      ...(changedDays !== null ? { changed_within_days: changedDays } : {}),
       ...unknownFields(value.filter, KNOWN_FILTER_KEYS),
     },
     ...unknownFields(value, KNOWN_LIST_KEYS),

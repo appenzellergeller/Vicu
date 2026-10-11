@@ -10,6 +10,9 @@
  * - Every condition is evaluated on the full task set, before nested subtasks are hidden.
  * - Server filter strings are a superset of the exact window built from local-day boundaries;
  *   the exact rule is always applied client-side with `matchesCustomList`.
+ * - The collaboration and activity conditions (`assigned`, `comments`, `shared_only`,
+ *   `changed_within_days`, section 3.3) also read a `CustomListContext`: who you are and which
+ *   projects are shared. `customListActivity` in the fixture covers them.
  *
  * This file only imports its sibling due-date helpers, so any tsconfig can include it.
  */
@@ -47,6 +50,14 @@ export interface CustomListFilterInput {
   include_today_all_projects?: boolean
   priority_filter?: number[] | null
   label_ids?: number[] | null
+  /** 'me', 'others' or 'nobody'; anything else (or absent) is no condition. */
+  assigned?: string
+  /** 'unread' or 'any'; anything else (or absent) is no condition. */
+  comments?: string
+  /** Only tasks of shared projects. */
+  shared_only?: boolean
+  /** Only tasks changed on the last N local days, today included; a whole number of 1 or more. */
+  changed_within_days?: number
 }
 
 /** The fields of a Vikunja task the evaluator reads. */
@@ -56,6 +67,80 @@ export interface CustomListTask {
   due_date?: string | null
   priority?: number
   labels?: Array<{ id: number }> | null
+  assignees?: Array<{ id: number }> | null
+  /** Only present when the list asked for it (`expand=comment_count`). */
+  comment_count?: number | null
+  /** Only present when the list asked for it (`expand=is_unread`). */
+  is_unread?: boolean | null
+  updated?: string | null
+}
+
+/** What the collaboration conditions read besides the task (section 3.3). */
+export interface CustomListContext {
+  /** Your user id; null or absent while you are not known. */
+  me?: number | null
+  /** Whether a project is shared: its members include someone besides you. Absent: none is. */
+  isShared?: (projectId: number) => boolean
+}
+
+/** The assigned values this version knows. */
+export const ASSIGNED_VALUES = ['me', 'others', 'nobody'] as const
+/** The comments values this version knows. */
+export const COMMENTS_VALUES = ['unread', 'any'] as const
+
+/** `changed_within_days` when it is a condition (a whole number of 1 or more), else null. */
+export function changedWithinDays(filter: CustomListFilterInput): number | null {
+  const days = filter.changed_within_days
+  return typeof days === 'number' && Number.isInteger(days) && days >= 1 ? days : null
+}
+
+/** Whether the filter has any condition that reads the collaboration context. */
+export function hasCollaborationCondition(filter: CustomListFilterInput): boolean {
+  return (ASSIGNED_VALUES as readonly string[]).includes(filter.assigned ?? '')
+    || (COMMENTS_VALUES as readonly string[]).includes(filter.comments ?? '')
+    || filter.shared_only === true
+}
+
+/** Whether the filter needs `comment_count` or `is_unread` from the server. */
+export function needsCommentSignals(filter: CustomListFilterInput): boolean {
+  return (COMMENTS_VALUES as readonly string[]).includes(filter.comments ?? '')
+}
+
+/** The assigned, comments, shared and changed conditions of section 3.3. */
+function matchesActivity(task: CustomListTask, filter: CustomListFilterInput, day: LocalDate, context: CustomListContext): boolean {
+  const shared = context.isShared?.(task.project_id) ?? false
+  if (filter.shared_only === true && !shared) return false
+
+  const me = context.me ?? null
+  const assignees = task.assignees ?? []
+  switch (filter.assigned) {
+    case 'me':
+      if (!shared || me === null || !assignees.some((person) => person.id === me)) return false
+      break
+    case 'others':
+      if (!shared || me === null || assignees.length === 0 || assignees.some((person) => person.id === me)) return false
+      break
+    case 'nobody':
+      if (!shared || assignees.length > 0) return false
+      break
+  }
+
+  switch (filter.comments) {
+    case 'unread':
+      if (!shared || task.is_unread !== true) return false
+      break
+    case 'any':
+      if (!shared || !((task.comment_count ?? 0) > 0)) return false
+      break
+  }
+
+  const days = changedWithinDays(filter)
+  if (days !== null) {
+    const changed = localDateOf(task.updated)
+    if (changed === '' || changed < addLocalDays(day, -(days - 1))) return false
+  }
+
+  return true
 }
 
 /** The local calendar date an evaluation runs for. A Date is read in the process time zone. */
@@ -99,8 +184,16 @@ export function inDateWindow(
   }
 }
 
-/** Whether `task` belongs on the list described by `filter`, on the local date `today`. */
-export function matchesCustomList(task: CustomListTask, filter: CustomListFilterInput, today: EvaluationDay): boolean {
+/**
+ * Whether `task` belongs on the list described by `filter`, on the local date `today`.
+ * `context` is read by the collaboration conditions only; without it nothing is shared.
+ */
+export function matchesCustomList(
+  task: CustomListTask,
+  filter: CustomListFilterInput,
+  today: EvaluationDay,
+  context: CustomListContext = {},
+): boolean {
   const day = dayOf(today)
   const overdueToo = includesOverdue(filter)
 
@@ -128,7 +221,7 @@ export function matchesCustomList(task: CustomListTask, filter: CustomListFilter
     if (!labelIds.some((id) => taskLabels.some((label) => label.id === id))) return false
   }
 
-  return true
+  return matchesActivity(task, filter, day, context)
 }
 
 /** The tasks of `tasks` that match, in their original order. */
@@ -136,9 +229,10 @@ export function filterCustomList<T extends CustomListTask>(
   tasks: readonly T[],
   filter: CustomListFilterInput,
   today: EvaluationDay,
+  context: CustomListContext = {},
 ): T[] {
   const day = dayOf(today)
-  return tasks.filter((task) => matchesCustomList(task, filter, day))
+  return tasks.filter((task) => matchesCustomList(task, filter, day, context))
 }
 
 // --- Server filter ----------------------------------------------------------------------
@@ -180,8 +274,10 @@ function dateWindowClause(window: string | undefined, includeOverdue: boolean, n
 /**
  * The Vikunja `filter` string for a custom list. It never excludes a task the evaluator would
  * accept: the project clause is only added for include mode, and "today from all projects"
- * widens it with the today window. Callers must still apply `filterCustomList`. Undefined
- * when the list has no server-side condition.
+ * widens it with the today window, and `changed_within_days` adds `updated >= '<start of the
+ * first local day>'`. The assigned and comments conditions stay client-side (they depend on
+ * which projects are shared). Callers must still apply `filterCustomList`. Undefined when the
+ * list has no server-side condition.
  */
 export function buildCustomListServerFilter(filter: CustomListFilterInput, now: Date = new Date()): string | undefined {
   const parts: string[] = []
@@ -202,6 +298,9 @@ export function buildCustomListServerFilter(filter: CustomListFilterInput, now: 
 
   const dateClause = dateWindowClause(filter.due_date_filter, includesOverdue(filter), now)
   if (dateClause) parts.push(dateClause)
+
+  const days = changedWithinDays(filter)
+  if (days !== null) parts.push(`updated >= '${startOfLocalDayIso(-(days - 1), now)}'`)
 
   return parts.length > 0 ? parts.join(' && ') : undefined
 }

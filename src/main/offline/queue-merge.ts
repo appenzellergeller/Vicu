@@ -1,10 +1,15 @@
 import type {
+  AddAssigneeAction,
   AddLabelAction,
   CreateAction,
+  CreateCommentAction,
   DeleteAction,
+  DeleteCommentAction,
   QueuedAction,
+  RemoveAssigneeAction,
   RemoveLabelAction,
   UpdateAction,
+  UpdateCommentAction,
 } from './types'
 import { hasTaskId } from './types'
 
@@ -174,6 +179,83 @@ export function mergeRemoveLabel(actions: QueuedAction[], next: RemoveLabelActio
   if (addition) return outcome(actions.filter((a) => a.id !== addition.id), { removed: [addition] })
 
   return outcome([...actions, next], { appended: true })
+}
+
+/** Queue "assign this user". Cancels a queued unassign of the same user on the same task. */
+export function mergeAddAssignee(actions: QueuedAction[], next: AddAssigneeAction, inFlightId: string | null): MergeOutcome {
+  if (actions.some((a) => a.type === 'add-assignee' && a.taskId === next.taskId && a.userId === next.userId)) {
+    return outcome(actions, {})
+  }
+  const removal = actions.find(
+    (a): a is RemoveAssigneeAction =>
+      a.type === 'remove-assignee' && a.taskId === next.taskId && a.userId === next.userId && a.id !== inFlightId
+  )
+  if (removal) return outcome(actions.filter((a) => a.id !== removal.id), { removed: [removal] })
+  return outcome([...actions, next], { appended: true })
+}
+
+/** Queue "unassign this user". Cancels a queued assign of the same user on the same task. */
+export function mergeRemoveAssignee(actions: QueuedAction[], next: RemoveAssigneeAction, inFlightId: string | null): MergeOutcome {
+  if (actions.some((a) => a.type === 'remove-assignee' && a.taskId === next.taskId && a.userId === next.userId)) {
+    return outcome(actions, {})
+  }
+  const addition = actions.find(
+    (a): a is AddAssigneeAction =>
+      a.type === 'add-assignee' && a.taskId === next.taskId && a.userId === next.userId && a.id !== inFlightId
+  )
+  if (addition) return outcome(actions.filter((a) => a.id !== addition.id), { removed: [addition] })
+  return outcome([...actions, next], { appended: true })
+}
+
+/** Queue a new comment: always its own action, at the end. */
+export function mergeCreateComment(actions: QueuedAction[], next: CreateCommentAction): MergeOutcome {
+  return outcome([...actions, next], { appended: true })
+}
+
+/**
+ * Queue an edit of a comment. An edit of a comment that is still waiting to be created goes into
+ * the create; an edit of a comment with a queued edit replaces that edit's text.
+ */
+export function mergeUpdateComment(actions: QueuedAction[], next: UpdateCommentAction, inFlightId: string | null): MergeOutcome {
+  const createIndex = actions.findIndex(
+    (a) => a.type === 'create-comment' && a.tempCommentId === next.commentId && a.id !== inFlightId
+  )
+  if (createIndex !== -1) {
+    const create = actions[createIndex] as CreateCommentAction
+    return outcome(replaceAt(actions, createIndex, { ...create, comment: next.comment }), { foldedInto: create.id })
+  }
+  const editIndex = actions.findIndex(
+    (a) => a.type === 'update-comment' && a.commentId === next.commentId && a.id !== inFlightId
+  )
+  if (editIndex !== -1) {
+    const edit = actions[editIndex] as UpdateCommentAction
+    return outcome(replaceAt(actions, editIndex, { ...edit, comment: next.comment }), { foldedInto: edit.id })
+  }
+  return outcome([...actions, next], { appended: true })
+}
+
+/**
+ * Queue the deletion of a comment. A comment that is still waiting to be created just disappears
+ * from the queue with its edits; queued edits of any other comment are dropped before the delete.
+ */
+export function mergeDeleteComment(actions: QueuedAction[], next: DeleteCommentAction, inFlightId: string | null): MergeOutcome {
+  if (actions.some((a) => a.type === 'delete-comment' && a.commentId === next.commentId)) return outcome(actions, {})
+  const touches = (a: QueuedAction): boolean =>
+    a.id !== inFlightId &&
+    ((a.type === 'create-comment' && a.tempCommentId === next.commentId) ||
+      (a.type === 'update-comment' && a.commentId === next.commentId))
+  const removed = actions.filter(touches)
+  const kept = actions.filter((a) => !touches(a))
+  const pendingCreate = removed.some((a) => a.type === 'create-comment')
+  if (pendingCreate) return outcome(kept, { removed })
+  return outcome([...kept, next], { removed, appended: true })
+}
+
+/** Point queued edits and deletes of a comment that was waiting to be created at its real id. */
+export function remapTempCommentId(actions: QueuedAction[], tempCommentId: number, realId: number): QueuedAction[] {
+  return actions.map((a) =>
+    (a.type === 'update-comment' || a.type === 'delete-comment') && a.commentId === tempCommentId ? { ...a, commentId: realId } : a
+  )
 }
 
 export interface CancelOutcome {

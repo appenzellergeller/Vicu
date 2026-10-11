@@ -11,7 +11,14 @@ import {
   removeLabelFromTask,
   updateTask,
   uploadTaskAttachment,
+  addTaskAssignee,
+  removeTaskAssignee,
+  createTaskComment,
+  updateTaskComment,
+  deleteTaskComment,
+  fetchTaskComments,
 } from './api-client'
+import { findQueuedComment } from './offline/comment-overlay'
 import { OFFLINE_EVENTS, forgetKnownUser, getOfflineQueue, knownUserIdFor, rememberKnownUser, sendToAppWindows } from './offline/service'
 import { fetchCurrentUser } from './auth/user-info'
 import { authManager } from './auth/auth-manager'
@@ -43,6 +50,18 @@ const api: ReplayApi = {
     const found = await fetchTasks({ q: title, filter: `project_id = ${projectId}`, [KEEP_NESTED_SUBTASKS_PARAM]: true })
     if (!found.success) return found
     return { success: true, data: found.data.find((t) => matchesQueuedCreate(t, projectId, fields, since)) as { id: number } | undefined ?? null }
+  },
+  addTaskAssignee: (taskId, userId) => sendSerially(() => addTaskAssignee(taskId, userId)),
+  removeTaskAssignee: (taskId, userId) => sendSerially(() => removeTaskAssignee(taskId, userId)),
+  createTaskComment: (taskId, html) => sendSerially(() => createTaskComment(taskId, html)),
+  updateTaskComment: (taskId, commentId, html) => sendSerially(() => updateTaskComment(taskId, commentId, html)),
+  deleteTaskComment: (taskId, commentId) => sendSerially(() => deleteTaskComment(taskId, commentId)),
+  async findRecentComment(taskId, html, since) {
+    const page = await fetchTaskComments(taskId, 1)
+    if (!page.success) return page
+    const config = loadConfig()
+    const me = config?.vikunja_url ? knownUserIdFor(config.vikunja_url) : undefined
+    return { success: true, data: findQueuedComment(page.data.items, html, since, me) }
   },
 }
 

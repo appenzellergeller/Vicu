@@ -1,5 +1,5 @@
 import { forwardRef, memo, useState, useRef, useEffect, useCallback, useImperativeHandle, useMemo } from 'react'
-import { ListChecks, Bell, Repeat, Paperclip, AlignLeft, ChevronRight } from 'lucide-react'
+import { ListChecks, Bell, Repeat, Paperclip, AlignLeft, ChevronRight, MessageSquare } from 'lucide-react'
 import type { Editor } from '@tiptap/react'
 import { useDraggable } from '@dnd-kit/core'
 import { useSortable, defaultAnimateLayoutChanges } from '@dnd-kit/sortable'
@@ -43,6 +43,11 @@ import {
   taskDescendants,
 } from '@/lib/task-hierarchy'
 import { confirmTaskCompletion } from '@/lib/task-completion'
+import { assignedLabel, commentCountLabel, orderPeople } from '@/lib/collaboration'
+import { useCollabMe, useProjectAccess } from '@/hooks/use-project-access'
+import { useUIStore } from '@/stores/ui-store'
+import { useCommentsPaneStore } from '@/stores/comments-pane-store'
+import { AvatarStack } from '@/components/shared/Avatar'
 
 
 interface TaskRowProps {
@@ -364,6 +369,33 @@ function TaskRowInner({ task, nestedDepth = 0, parentProjectId, projectMeta, dra
   useCompletionCollapse(task.id, rowElement)
   const strikePlay = useCompletionPlay(task.done)
   const isDark = useIsDark()
+  // Collaboration shows only on a shared project (cross-app semantics 9.1, design system section 4).
+  const access = useProjectAccess(task.project_id)
+  const me = useCollabMe()
+  const commentsPaneOpen = useUIStore((s) => s.commentsPaneOpen)
+  const commentCount = access.shared ? (task.comment_count ?? 0) : 0
+  const unread = access.shared && !!task.is_unread
+  const assignees = useMemo(
+    () => (access.shared ? orderPeople(task.assignees ?? [], me?.id) : []),
+    [access.shared, task.assignees, me?.id],
+  )
+  // The open card tells the comments pane which task to follow, with the row's live data.
+  useEffect(() => {
+    if (isExpanded) useCommentsPaneStore.getState().showCardTask(task)
+  }, [isExpanded, task])
+  useEffect(() => {
+    if (!isExpanded) return
+    return () => useCommentsPaneStore.getState().clearCardTask(task.id)
+  }, [isExpanded, task.id])
+  const cardCollab = useMemo(
+    () => ({
+      access,
+      me,
+      commentsOpen: commentsPaneOpen,
+      onToggleComments: () => useUIStore.getState().toggleCommentsPane(),
+    }),
+    [access, me, commentsPaneOpen],
+  )
 
   const [editDescription, setEditDescription] = useState(stripPageLink(stripNoteLink(task.description)))
   const [isDragOver, setIsDragOver] = useState(false)
@@ -542,6 +574,7 @@ function TaskRowInner({ task, nestedDepth = 0, parentProjectId, projectMeta, dra
     isRepeating ||
     hasNotesContent(task.description) ||
     (task.attachments?.length ?? 0) > 0 ||
+    commentCount > 0 ||
     (nestedDepth === 0 && !!parentTitle(task)) ||
     (nestedDepth > 0 && parentProjectId !== undefined && parentProjectId !== task.project_id)
 
@@ -705,12 +738,48 @@ function TaskRowInner({ task, nestedDepth = 0, parentProjectId, projectMeta, dra
                   <Paperclip className="h-3 w-3" />
                 </button>
               )}
+              {commentCount > 0 && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    // Opens the card and its comments together, like the paperclip opens attachments.
+                    e.stopPropagation()
+                    const { selectedTaskIds } = useSelectionStore.getState()
+                    if (selectedTaskIds.size > 0) clearSelection()
+                    setFocusedTask(task.id)
+                    setExpandedTask(task.id)
+                    useUIStore.getState().setCommentsPaneOpen(true)
+                  }}
+                  className={cn(
+                    'flex min-h-6 shrink-0 items-center gap-1 rounded-control px-1 hover:bg-bg-hover hover:text-text',
+                    unread && 'font-semibold text-accent-blue',
+                  )}
+                  aria-label={commentCountLabel(commentCount, unread)}
+                >
+                  <span className="relative inline-flex">
+                    <MessageSquare className="h-3 w-3" aria-hidden="true" />
+                    {unread && (
+                      <span
+                        aria-hidden="true"
+                        className="vicu-unread-dot absolute -right-[3px] -top-[2px] h-1.5 w-1.5 rounded-full bg-accent-blue"
+                        style={{ boxShadow: '0 0 0 1.5px var(--bg-primary)' }}
+                      />
+                    )}
+                  </span>
+                  <span aria-hidden="true">{commentCount}</span>
+                </button>
+              )}
             </div>
           )}
         </div>
 
-        {/* Trailing cluster, level with the title: the due phrase, the reminder bell, the priority last. */}
+        {/* Trailing cluster, level with the title: assignees, the due phrase, the reminder bell, the priority last. */}
         <div className="flex h-5 shrink-0 items-center gap-2">
+          {assignees.length > 0 && (
+            <span role="img" aria-label={assignedLabel(assignees, me?.id)} className="inline-flex">
+              <AvatarStack people={assignees} size={18} max={2} surface="page" />
+            </span>
+          )}
           <TaskSyncIcon taskId={task.id} />
           <TaskLinkIcon description={task.description} />
           <TaskDueBadge dueDate={task.due_date} />
@@ -834,6 +903,7 @@ function TaskRowInner({ task, nestedDepth = 0, parentProjectId, projectMeta, dra
         onPriorityChange={handlePriorityChange}
         onReminderChange={handleReminderChange}
         onProjectChange={(pid) => updateTask.mutate({ id: task.id, changes: { project_id: pid }, original: task })}
+        collab={cardCollab}
         onDelete={async () => {
           setActivePopover(null)
           if (taskDescendants(task).length > 0) {

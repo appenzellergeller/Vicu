@@ -15,6 +15,14 @@ import {
   clampPageSize,
   type PaginatedResponse,
   finishTaskCollection,
+  buildTaskCommentsUrl,
+  envelopeItems,
+  readCommentPage,
+  sniffImageType,
+  MAX_AVATAR_BYTES,
+  VIKUNJA_ERROR_ALREADY_ASSIGNED,
+  VIKUNJA_ERROR_ALREADY_SUBSCRIBED,
+  type TaskCommentPage,
 } from './api-v2'
 import type { ApiError, ApiResult } from './api-result'
 import { collectAllPages } from './paginate'
@@ -892,4 +900,202 @@ export async function downloadTaskAttachment(
     buildTaskAttachmentDownloadUrl(c.url, taskId, attachmentId, previewSize),
     c.token
   )
+}
+
+// --- Collaboration (docs/cross-app-semantics-v1.md section 9) ---
+
+/** A 403 from the collaboration endpoints is about the project, not the token. */
+function withCollabMessage<T>(result: ApiResult<T>, forbidden: string): ApiResult<T> {
+  if (result.success || result.statusCode !== 403) return result
+  return { ...result, error: forbidden }
+}
+
+/** Everyone who can see a project: the owner, direct shares, team members and parent shares. */
+export async function searchProjectUsers(projectId: number): Promise<ApiResult<unknown[]>> {
+  const c = await getConfigOrFail()
+  if ('success' in c) return c
+
+  const result = await requestWithRetry<PaginatedResponse<unknown> | unknown[]>(
+    'GET',
+    `${c.url}${API_BASE_PATH}/projects/${projectId}/users/search?q=`,
+    c.token,
+  )
+  if (!result.success) return result
+  return { success: true, data: envelopeItems(result.data) }
+}
+
+/** The users a project is shared with directly, each with its permission. */
+export async function fetchProjectUserShares(projectId: number): Promise<ApiResult<unknown[]>> {
+  const c = await getConfigOrFail()
+  if ('success' in c) return c
+
+  return requestAllPagesWithRetry<unknown>(`${c.url}${API_BASE_PATH}/projects/${projectId}/users`, c.token)
+}
+
+/** The teams a project is shared with, each with its permission and members. */
+export async function fetchProjectTeamShares(projectId: number): Promise<ApiResult<unknown[]>> {
+  const c = await getConfigOrFail()
+  if ('success' in c) return c
+
+  return requestAllPagesWithRetry<unknown>(`${c.url}${API_BASE_PATH}/projects/${projectId}/teams`, c.token)
+}
+
+const NOT_ADMIN = 'Only an admin of this project can change who it is shared with.'
+
+export async function shareProjectWithUser(projectId: number, username: string, permission: number): Promise<ApiResult<unknown>> {
+  const c = await getConfigOrFail()
+  if ('success' in c) return c
+
+  const result = await requestWithRetry<unknown>('POST', `${c.url}${API_BASE_PATH}/projects/${projectId}/users`, c.token, {
+    username,
+    permission,
+  })
+  return withCollabMessage(result, NOT_ADMIN)
+}
+
+export async function updateProjectUserShare(projectId: number, username: string, permission: number): Promise<ApiResult<unknown>> {
+  const c = await getConfigOrFail()
+  if ('success' in c) return c
+
+  const result = await requestWithRetry<unknown>(
+    'PUT',
+    `${c.url}${API_BASE_PATH}/projects/${projectId}/users/${encodeURIComponent(username)}`,
+    c.token,
+    { permission },
+  )
+  return withCollabMessage(result, NOT_ADMIN)
+}
+
+export async function removeProjectUserShare(projectId: number, username: string): Promise<ApiResult<void>> {
+  const c = await getConfigOrFail()
+  if ('success' in c) return c
+
+  const result = await requestWithRetry<void>(
+    'DELETE',
+    `${c.url}${API_BASE_PATH}/projects/${projectId}/users/${encodeURIComponent(username)}`,
+    c.token,
+  )
+  return withCollabMessage(result, NOT_ADMIN)
+}
+
+/** Users matching a search: an exact username, or a name or email of someone who made themselves findable. */
+export async function searchUsers(query: string): Promise<ApiResult<unknown[]>> {
+  const c = await getConfigOrFail()
+  if ('success' in c) return c
+
+  const result = await requestWithRetry<PaginatedResponse<unknown> | unknown[]>(
+    'GET',
+    `${c.url}${API_BASE_PATH}/users?q=${encodeURIComponent(query)}`,
+    c.token,
+  )
+  if (!result.success) return result
+  return { success: true, data: envelopeItems(result.data) }
+}
+
+const NO_WRITE_ACCESS = 'You can only read this project, so this was not changed.'
+
+/** Assign a user. An already assigned user (400, code 4021) counts as done. */
+export async function addTaskAssignee(taskId: number, userId: number): Promise<ApiResult<unknown>> {
+  const c = await getConfigOrFail()
+  if ('success' in c) return c
+
+  const result = await requestWithRetry<unknown>('POST', `${c.url}${API_BASE_PATH}/tasks/${taskId}/assignees`, c.token, {
+    user_id: userId,
+  })
+  if (!result.success && result.errorCode === VIKUNJA_ERROR_ALREADY_ASSIGNED) return { success: true, data: null }
+  return withCollabMessage(result, NO_WRITE_ACCESS)
+}
+
+/** Unassign a user (idempotent on the server). */
+export async function removeTaskAssignee(taskId: number, userId: number): Promise<ApiResult<void>> {
+  const c = await getConfigOrFail()
+  if ('success' in c) return c
+
+  const result = await requestWithRetry<void>('DELETE', `${c.url}${API_BASE_PATH}/tasks/${taskId}/assignees/${userId}`, c.token)
+  return withCollabMessage(result, NO_WRITE_ACCESS)
+}
+
+/** One page of a task's comments, newest first (the thread shows them oldest first). */
+export async function fetchTaskComments(taskId: number, page: number): Promise<ApiResult<TaskCommentPage>> {
+  const c = await getConfigOrFail()
+  if ('success' in c) return c
+
+  const result = await requestWithRetry<PaginatedResponse<unknown> | unknown[]>(
+    'GET',
+    buildTaskCommentsUrl(c.url, taskId, page),
+    c.token,
+  )
+  if (!result.success) return result
+  return { success: true, data: readCommentPage(result.data, page) }
+}
+
+export async function createTaskComment(taskId: number, html: string): Promise<ApiResult<unknown>> {
+  const c = await getConfigOrFail()
+  if ('success' in c) return c
+
+  const result = await requestWithRetry<unknown>('POST', `${c.url}${API_BASE_PATH}/tasks/${taskId}/comments`, c.token, {
+    comment: html,
+  })
+  return withCollabMessage(result, NO_WRITE_ACCESS)
+}
+
+const ONLY_THE_AUTHOR = 'Only the person who wrote a comment can change or delete it.'
+
+export async function updateTaskComment(taskId: number, commentId: number, html: string): Promise<ApiResult<unknown>> {
+  const c = await getConfigOrFail()
+  if ('success' in c) return c
+
+  const result = await patchWithRetry<unknown>(`${c.url}${API_BASE_PATH}/tasks/${taskId}/comments/${commentId}`, c.token, {
+    comment: html,
+  })
+  return withCollabMessage(result, ONLY_THE_AUTHOR)
+}
+
+export async function deleteTaskComment(taskId: number, commentId: number): Promise<ApiResult<void>> {
+  const c = await getConfigOrFail()
+  if ('success' in c) return c
+
+  const result = await requestWithRetry<void>('DELETE', `${c.url}${API_BASE_PATH}/tasks/${taskId}/comments/${commentId}`, c.token)
+  return withCollabMessage(result, ONLY_THE_AUTHOR)
+}
+
+/** Clear your unread flag on a task (idempotent). */
+export async function markTaskRead(taskId: number): Promise<ApiResult<unknown>> {
+  const c = await getConfigOrFail()
+  if ('success' in c) return c
+
+  return requestWithRetry<unknown>('PUT', `${c.url}${API_BASE_PATH}/tasks/${taskId}/read`, c.token)
+}
+
+/** Follow a task. Already following (412, code 12002) counts as done. */
+export async function subscribeToTask(taskId: number): Promise<ApiResult<unknown>> {
+  const c = await getConfigOrFail()
+  if ('success' in c) return c
+
+  const result = await requestWithRetry<unknown>('POST', `${c.url}${API_BASE_PATH}/subscriptions/task/${taskId}`, c.token)
+  if (!result.success && result.errorCode === VIKUNJA_ERROR_ALREADY_SUBSCRIBED) return { success: true, data: null }
+  return result
+}
+
+export async function unsubscribeFromTask(taskId: number): Promise<ApiResult<void>> {
+  const c = await getConfigOrFail()
+  if ('success' in c) return c
+
+  return requestWithRetry<void>('DELETE', `${c.url}${API_BASE_PATH}/subscriptions/task/${taskId}`, c.token)
+}
+
+/** A user's avatar as a data URL (the server answers SVG for its initials provider, else an image). */
+export async function fetchAvatar(username: string, size: number): Promise<ApiResult<string>> {
+  const c = await getConfigOrFail()
+  if ('success' in c) return c
+
+  const result = await requestBinaryWithRetry(
+    `${c.url}${API_BASE_PATH}/avatar/${encodeURIComponent(username)}?size=${Math.max(1, Math.round(size))}`,
+    c.token,
+  )
+  if (!result.success) return result
+  if (result.data.length > MAX_AVATAR_BYTES) return { success: false, error: 'The avatar is too large' }
+  const type = sniffImageType(result.data)
+  if (!type) return { success: false, error: 'The avatar is not an image' }
+  return { success: true, data: `data:${type};base64,${result.data.toString('base64')}` }
 }

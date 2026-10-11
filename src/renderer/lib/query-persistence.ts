@@ -17,6 +17,10 @@ export const PERSISTED_KEY_PREFIXES: ReadonlySet<unknown> = new Set([
   'labels',
   'project-views',
   'project-counts',
+  // Collaboration: who you are, who can see each project, and the threads you opened.
+  'current-user',
+  'project-members',
+  'task-comments',
 ])
 
 /** A saved copy older than this is not restored: it would show a long out-of-date picture. */

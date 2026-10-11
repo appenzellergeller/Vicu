@@ -31,6 +31,8 @@ export function failureReasonLabel(reason: OfflineFailureReason): string {
       return 'Stopped after repeated errors.'
     case 'other-account':
       return 'Made while signed in to a different account, so it was not sent.'
+    case 'forbidden':
+      return 'You are no longer allowed to make this change in the project.'
   }
 }
 

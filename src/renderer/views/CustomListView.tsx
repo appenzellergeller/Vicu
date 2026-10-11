@@ -1,14 +1,15 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useParams } from '@tanstack/react-router'
 import { useTasks } from '@/hooks/use-tasks'
 import { useProjects } from '@/hooks/use-projects'
 import { useCustomList } from '@/hooks/use-custom-lists'
 import { useAppConfig } from '@/hooks/use-app-config'
+import { useCollabMe, useSharedProjectIds } from '@/hooks/use-project-access'
 import { usePrintable } from '@/stores/print-store'
 import { useDayKey } from '@/stores/day-store'
 import { TaskList } from '@/components/task-list/TaskList'
 import { RowViewProvider } from '@/components/task-list/RowViewContext'
-import { buildCustomListServerFilter, matchesCustomList } from '@/lib/custom-list-filter'
+import { buildCustomListServerFilter, matchesCustomList, type CustomListContext } from '@/lib/custom-list-filter'
 import { serverSortParams, sortCustomListTasks } from '@/lib/custom-list-sort'
 import { toLocalDate } from '@/lib/due-dates'
 import { withoutNestedSubtasks } from '@/lib/nested-subtasks'
@@ -32,8 +33,8 @@ function buildQueryParams(list: CustomList): TaskQueryParams {
   }
 }
 
-function taskMatchesCustomList(task: Task, list: CustomList, activeProjectIds: Set<number>): boolean {
-  return activeProjectIds.has(task.project_id) && matchesCustomList(task, list.filter, toLocalDate(new Date()))
+function taskMatchesCustomList(task: Task, list: CustomList, activeProjectIds: Set<number>, context: CustomListContext): boolean {
+  return activeProjectIds.has(task.project_id) && matchesCustomList(task, list.filter, toLocalDate(new Date()), context)
 }
 
 export function CustomListView() {
@@ -46,6 +47,18 @@ export function CustomListView() {
   // params are built, so the day is a dependency: after midnight the filter (and with it the query
   // key) changes instead of reusing yesterday's window.
   const dayKey = useDayKey()
+  // Who you are and which projects are shared, for the collaboration conditions (cross-app
+  // semantics 3.3). Comment signals are already on every task list while something is shared.
+  const me = useCollabMe()
+  const sharedProjectIds = useSharedProjectIds()
+  const context = useMemo<CustomListContext>(
+    () => ({ me: me?.id ?? null, isShared: (projectId) => sharedProjectIds.has(projectId) }),
+    [me, sharedProjectIds],
+  )
+  // A task of an "unread comments" list whose comments you read here keeps its place until you
+  // leave the list, so reading the thread does not pull the row away under you.
+  const readHere = useRef<{ listId: string; ids: Set<number> }>({ listId, ids: new Set() })
+  if (readHere.current.listId !== listId) readHere.current = { listId, ids: new Set() }
 
   const queryParams = useMemo(() => {
     if (!customList) return { filter: 'done = false', keep_nested_subtasks: true }
@@ -63,13 +76,19 @@ export function CustomListView() {
   const filteredTasks = useMemo(() => {
     if (!customList) return tasks
     const activeIds = new Set(projects?.flat.map((project) => project.id) ?? [])
-    const matching = tasks.filter((task) => taskMatchesCustomList(task, customList, activeIds))
+    const keepRead = customList.filter.comments === 'unread'
+    const seen = readHere.current.ids
+    const matching = tasks.filter((task) => {
+      if (keepRead && task.is_unread) seen.add(task.id)
+      const evaluated = keepRead && !task.is_unread && seen.has(task.id) ? { ...task, is_unread: true } : task
+      return taskMatchesCustomList(evaluated, customList, activeIds, context)
+    })
     // The list's own sort, the same as on Android: tasks without the date last in both directions,
     // ties in the order they came in. Subtasks are hidden after sorting, so the order holds.
     const sorted = sortCustomListTasks(matching, customList.filter.sort_by, customList.filter.order_by)
     // A matching subtask is shown even when its parent does not match (cross-app semantics v1, 3.2).
     return withoutNestedSubtasks(sorted, { hideChildrenOfCompletedParents: false })
-  }, [tasks, customList, projects?.flat, dayKey])
+  }, [tasks, customList, projects?.flat, dayKey, context])
 
   usePrintable(
     useMemo(
@@ -101,6 +120,7 @@ export function CustomListView() {
           task,
           customList,
           new Set(projects?.flat.map((project) => project.id) ?? []),
+          context,
         )) {
           setCreationNotice(null)
           return

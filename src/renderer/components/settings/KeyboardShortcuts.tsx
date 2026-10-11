@@ -24,6 +24,12 @@ const shortcuts = [
     { keys: [mod, 'Enter'], description: 'Save and close task' },
     { keys: [mod, 'K'], description: 'Complete and close task' },
     { keys: [mod, 'T'], description: 'Set due date to today' },
+    { keys: [mod, 'Shift', 'C'], description: 'Show or hide comments (shared projects)' },
+  ]},
+  { category: 'Comments', items: [
+    { keys: [mod, 'Enter'], description: 'Post the comment' },
+    { keys: ['@'], description: 'Mention someone' },
+    { keys: ['Escape'], description: 'Close comments' },
   ]},
 ]
 

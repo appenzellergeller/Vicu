@@ -1,6 +1,14 @@
 import { isAuthError, isRetriableError, type FailureLike } from '../../shared/error-classify'
 import type { OfflineActionType, OfflineFailureReason, OfflineReplayStop } from '../../shared/offline-queue-types'
 
+const COLLAB_ACTIONS: ReadonlySet<OfflineActionType> = new Set<OfflineActionType>([
+  'add-assignee',
+  'remove-assignee',
+  'create-comment',
+  'update-comment',
+  'delete-comment',
+])
+
 /** What the replay does with an action whose request failed (D-SYNC-1). */
 export type ReplayDecision =
   /** The server will never accept this action: move it to the failed log. */
@@ -24,6 +32,10 @@ export type ReplayDecision =
 export function classifyReplayFailure(failure: FailureLike, actionType: OfflineActionType): ReplayDecision {
   const status = failure.statusCode
 
+  // An assignee or comment change answered 403 is about the project or the comment (the user lost
+  // write access, or it is someone else's comment), not the session: one such change must not hold
+  // up everything behind it (cross-app semantics 9.6).
+  if (status === 403 && COLLAB_ACTIONS.has(actionType)) return { kind: 'drop', reason: 'forbidden' }
   if (status === 401 || status === 403 || isAuthError(failure.error)) return { kind: 'stop', why: 'auth' }
   if (failure.error.includes('is not configured')) return { kind: 'stop', why: 'config' }
 
@@ -36,8 +48,15 @@ export function classifyReplayFailure(failure: FailureLike, actionType: OfflineA
 
     if (status === 404) {
       // Deleting or detaching something that is already gone has the effect the user wanted.
-      if (actionType === 'delete' || actionType === 'remove-label') return { kind: 'done' }
-      return { kind: 'drop', reason: actionType === 'create' ? 'not-found' : 'task-gone' }
+      if (
+        actionType === 'delete' ||
+        actionType === 'remove-label' ||
+        actionType === 'remove-assignee' ||
+        actionType === 'delete-comment'
+      ) {
+        return { kind: 'done' }
+      }
+      return { kind: 'drop', reason: actionType === 'create' || actionType === 'update-comment' ? 'not-found' : 'task-gone' }
     }
     if (status === 409) {
       return actionType === 'add-label' ? { kind: 'done' } : { kind: 'drop', reason: 'conflict' }

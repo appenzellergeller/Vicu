@@ -16,7 +16,13 @@ import {
   nextWeekStart,
   postponeDays,
 } from '../due-dates'
-import { buildCustomListServerFilter, filterCustomList, type CustomListFilterInput } from '../custom-list-filter'
+import {
+  buildCustomListServerFilter,
+  filterCustomList,
+  hasCollaborationCondition,
+  type CustomListContext,
+  type CustomListFilterInput,
+} from '../custom-list-filter'
 import { computeStatus, type ReviewMetadata } from '../../renderer/lib/review-metadata'
 import { evaluateServerFilter } from './server-filter-eval'
 
@@ -56,6 +62,18 @@ interface CustomListVector {
   filter: CustomListFilterInput
   expect: number[]
 }
+interface ActivityTask {
+  id: number
+  projectId: number
+  due: string | null
+  done: boolean
+  assignees: number[]
+  commentCount: number
+  unread: boolean
+  updated: string
+}
+interface ActivityVector extends CustomListVector { signedOut?: boolean }
+interface ActivityBlock { me: number; shared: number[]; tasks: ActivityTask[]; vectors: ActivityVector[] }
 interface SmartListVector { today: string; todayOverdue: number[]; todayToday: number[]; upcoming: number[] }
 interface ReviewVector {
   name: string
@@ -71,6 +89,7 @@ interface Fixture {
   tasks: FixtureTask[]
   smartLists: SmartListVector[]
   customLists: CustomListVector[]
+  customListActivity: ActivityBlock
   review: ReviewVector[]
 }
 
@@ -205,6 +224,53 @@ export function runCrossAppSemanticsSuite(options: { zone: string; expectedOffse
             const serverFilter = buildCustomListServerFilter(vector.filter, now)
             for (const task of filterCustomList(tasks, vector.filter, now)) {
               expect(evaluateServerFilter(serverFilter, task), `task ${task.id} vs ${serverFilter}`).toBe(true)
+            }
+          })
+        }
+      }
+    })
+
+    describe('customListActivity', () => {
+      const block = fixture.customListActivity
+      const asTask = (task: ActivityTask) => ({
+        id: task.id,
+        project_id: task.projectId,
+        done: task.done,
+        due_date: task.due === null ? '0001-01-01T00:00:00Z' : local(task.due).toISOString(),
+        priority: 0,
+        labels: [],
+        assignees: task.assignees.map((id) => ({ id })),
+        comment_count: task.commentCount,
+        is_unread: task.unread,
+        updated: local(task.updated).toISOString(),
+      })
+
+      it('has the activity vectors', () => {
+        expect(block.vectors.length).toBeGreaterThanOrEqual(20)
+      })
+
+      for (const vector of block.vectors) {
+        for (const clock of ['00:00:30', '10:00:00', '23:59:30']) {
+          it(`${vector.name} at ${clock}`, () => {
+            const now = local(`${vector.today}T${clock}`)
+            const tasks = block.tasks.map(asTask)
+            const context: CustomListContext = {
+              me: vector.signedOut ? null : block.me,
+              isShared: (projectId) => block.shared.includes(projectId),
+            }
+
+            expect(filterCustomList(tasks, vector.filter, now, context).map((task) => task.id)).toEqual(vector.expect)
+            expect(filterCustomList(tasks, vector.filter, vector.today, context).map((task) => task.id)).toEqual(vector.expect)
+
+            const serverFilter = buildCustomListServerFilter(vector.filter, now)
+            const accepted = filterCustomList(tasks, vector.filter, now, context)
+            for (const task of accepted) {
+              expect(evaluateServerFilter(serverFilter, task), `task ${task.id} vs ${serverFilter}`).toBe(true)
+            }
+            // Without the client-only conditions, the server clause for "changed" is exact.
+            if (!hasCollaborationCondition(vector.filter) && !vector.filter.project_ids && vector.filter.due_date_filter === 'all') {
+              const fromServer = tasks.filter((task) => evaluateServerFilter(serverFilter, task)).map((task) => task.id)
+              expect(fromServer, serverFilter).toEqual(vector.expect)
             }
           })
         }

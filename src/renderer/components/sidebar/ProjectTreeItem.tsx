@@ -1,11 +1,14 @@
 import { useRef } from 'react'
 import { useNavigate, useMatches } from '@tanstack/react-router'
 import { SelectionPill } from './SelectionPill'
-import { ChevronRight, FolderOpen, MoreHorizontal } from 'lucide-react'
+import { ChevronRight, FolderOpen, MoreHorizontal, Users } from 'lucide-react'
 import { useDndContext, useDraggable, useDroppable } from '@dnd-kit/core'
 import { cn } from '@/lib/cn'
 import { normalizeHex } from '@/lib/constants'
 import { ProgressRing } from '@/components/shared/ProgressRing'
+import { Tooltip } from '@/components/overlay/Tooltip'
+import { nameList } from '@/lib/collaboration'
+import { useCollabMe, useProjectAccess } from '@/hooks/use-project-access'
 import {
   DropLine,
   INTO_CLASSES,
@@ -173,6 +176,7 @@ export function ProjectTreeItem(props: ProjectTreeItemProps) {
               strokeWidth={1.8}
             />
             <span className="min-w-0 flex-1 truncate text-xs">{node.title}</span>
+            <SharedMark projectId={node.id} />
           </div>
         )}
 
@@ -208,6 +212,25 @@ export function ProjectTreeItem(props: ProjectTreeItemProps) {
           <ProjectTreeItem key={child.id} {...props} node={child} depth={depth + 1} />
         ))}
       {creatingUnder === node.id && <ProjectCreateRow parentId={node.id} depth={depth + 1} />}
+    </>
+  )
+}
+
+/** A shared project's mark after its name: the Users icon, with who else can see it. */
+function SharedMark({ projectId }: { projectId: number }) {
+  const access = useProjectAccess(projectId)
+  const me = useCollabMe()
+  if (!access.shared) return null
+  const others = nameList(access.members.filter((m) => m.id !== me?.id), me?.id)
+  const text = others ? `Shared with ${others}` : 'Shared'
+  return (
+    <>
+      <Tooltip label={text}>
+        <span className="ml-1 inline-flex shrink-0 text-text-secondary">
+          <Users aria-hidden="true" className="h-[13px] w-[13px]" />
+        </span>
+      </Tooltip>
+      <span className="sr-only">, {text.charAt(0).toLowerCase() + text.slice(1)}</span>
     </>
   )
 }

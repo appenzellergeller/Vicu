@@ -1,7 +1,7 @@
 // project-manage: managing projects from the sidebar, the project page and Settings → Projects.
 //
 //   A. The … button shows on a hovered sidebar row and opens the project menu (Rename, Edit…,
-//      Add subproject, Move to…, Set as Inbox, Review, Archive, Delete); right-click opens the same.
+//      Share… (you are the admin), Add subproject, Move to…, Set as Inbox, Review, Archive, Delete); right-click opens the same.
 //   B. Move to… puts Q4 planning under Personal on the server; Undo in the toast puts it back.
 //   C. Dragging Trip to Lisbon onto the middle of Work nests it there (the row shows the "into"
 //      highlight while held); Undo puts it back after Home renovation.
@@ -69,7 +69,7 @@ export default async function run(h) {
     await more.click()
     await h.wait(300)
     const items = await menuItems()
-    const expected = ['Rename', 'Edit…', 'Add subproject', 'Move to…', 'Set as Inbox', 'Review', 'Archive', 'Delete']
+    const expected = ['Rename', 'Edit…', 'Share…', 'Add subproject', 'Move to…', 'Set as Inbox', 'Review', 'Archive', 'Delete']
     await h.assert('A: the menu lists every project action', {
       ok: expected.every((label) => items.some((item) => item.startsWith(label))),
       detail: JSON.stringify(items),

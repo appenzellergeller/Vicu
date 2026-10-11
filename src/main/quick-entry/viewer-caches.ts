@@ -1,6 +1,7 @@
-import { fetchProjects } from '../api-client'
+import { fetchProjects, searchProjectUsers } from '../api-client'
 import { createTtlCache } from '../ttl-cache'
 import { createActiveProjectIds } from './active-projects'
+import { createViewerCollab } from './viewer-collab'
 
 /** Brief memory for what Quick View's refreshes keep asking for (D-IPC-6). */
 
@@ -14,8 +15,12 @@ export const activeProjects = createActiveProjectIds({
   now: () => Date.now(),
 })
 
+/** Who can see each project, for custom lists with collaboration conditions. */
+export const viewerCollab = createViewerCollab({ members: searchProjectUsers })
+
 /** A project was created, changed or deleted, or the account changed. */
 export function invalidateViewerCaches(): void {
   projectListViewIds.clear()
   activeProjects.invalidate()
+  viewerCollab.clear()
 }
